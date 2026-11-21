@@ -1,5 +1,5 @@
 // Guarda la app en el dispositivo para que abra sin internet y se actualice sola.
-const CACHE = 'mas-2026.11.21-26e87a';
+const CACHE = 'mas-2026.11.21-3b0fe5';
 const ASSETS = [
  "./",
  "./index.html",

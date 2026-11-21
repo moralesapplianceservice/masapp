@@ -320,27 +320,95 @@ body.modal-open{overflow:hidden}
 .busy .card{min-width:260px;max-width:86vw;align-items:stretch}
 .loading{display:grid;place-items:center;min-height:50vh;color:var(--muted);text-align:center;gap:12px}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
-/* Venta de mostrador */
-.posv{display:grid;gap:18px;align-items:start}
-.pos-find,.pos-cart{display:flex;flex-direction:column;gap:12px;min-width:0}
-.pos-find{gap:6px}
-@media (min-width:900px){.posv{grid-template-columns:minmax(0,5fr) minmax(0,7fr)}.pos-find{position:sticky;top:0}}
-.pos-res{margin-top:6px}
+/* Venta de mostrador: pantalla completa que se acomoda al dispositivo */
+.layer.full{padding:0;align-items:stretch}
+.sheet.full{max-width:none;max-height:none;width:100%;height:100%;border-radius:0;animation:none}
+.pos-head{gap:12px}
+.pos-head h3{font-size:22px}
+.pos-t-short{display:none}
+.pos-from{display:flex;align-items:center;gap:8px;margin-left:auto}
+.pos-from .inp{min-height:40px;width:auto;max-width:210px}
+.posx{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:minmax(0,1fr);font-size:16px}
+.pos-left,.pos-right{min-height:0;display:flex;flex-direction:column}
+.pos-left{padding:14px 16px 0;gap:10px}
+.pos-search{position:relative;flex:0 0 auto}
+.pos-search .inp{min-height:54px;font-size:18px}
+.pos-res{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:5;max-height:min(62vh,560px);overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:6px}
+.pos-res:empty{display:none}
+.pos-res .pk-row{padding:12px 14px}
 .pk-row.first{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
-.chips.wrap{flex-wrap:wrap;overflow:visible}
+.pos-recent{flex:0 0 auto}
+.pos-recent:empty{display:none}
+.pos-lines{flex:1 1 auto;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:8px;padding-bottom:6px}
+.pos-empty{margin:auto;text-align:center;color:var(--muted);max-width:300px;padding:24px 0}
+.pos-empty svg{width:34px;height:34px}
+.pl{border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.pl-top{display:flex;gap:8px;align-items:flex-start}
+.pl-top b{font-size:16px}
+.pl-top .grow,.pos-bar .grow{flex:1;min-width:0}
+.pl-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .qty-step{display:inline-flex;align-items:center;gap:4px}
-.tbl .qty-step input.inp{width:52px;text-align:center;padding:6px 4px}
-.pos-tbl input.inp{width:74px}
-.pos-tbl td.nm{min-width:150px}
-.pos-tbl .icon-btn{width:34px;height:34px}
-.qty-step .icon-btn{font-weight:800;font-size:18px}
-.pos-cash{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:flex-end}
+.qty-step .icon-btn{width:40px;height:40px;font-weight:800;font-size:20px}
+.qty-step .inp{width:60px;min-height:40px;text-align:center;padding:6px 4px}
+.pl-price{display:inline-flex;align-items:center;gap:4px}
+.pl-price .inp{width:90px;min-height:40px;text-align:right}
+.pl-sub{margin-left:auto;font-size:17px;font-variant-numeric:tabular-nums}
+.pl.flash{animation:posflash .9s ease-out}
+@keyframes posflash{from{background:var(--soft);border-color:var(--accent)}}
+.pos-tot{flex:0 0 auto;border-top:1px solid var(--line);padding:10px 0 14px;display:flex;justify-content:flex-end}
+.pos-tot .grand{font-size:32px}
+.pos-right{background:var(--bg)}
+.pos-pay-scroll{flex:1 1 auto;min-height:0;overflow:auto;padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.pos-pay-sum{display:none;align-items:baseline;justify-content:space-between;gap:10px}
+.pos-pay-sum b{font-family:var(--font-display);font-weight:800;font-size:32px}
+.pay-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px}
+.pay-btn{min-height:50px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font:inherit;font-weight:700;font-size:15px;color:var(--ink);cursor:pointer;padding:6px 8px}
+.pay-btn[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.chips.wrap{flex-wrap:wrap;overflow:visible}
+.pos-cash{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:flex-end}
 .pos-cash .field{width:150px}
-.pos-change{display:flex;align-items:baseline;gap:10px;min-height:38px}
-.pos-change b{font-family:var(--font-display);font-weight:800;font-size:30px;font-variant-numeric:tabular-nums}
-.pos-go{min-width:190px;font-size:17px}
-tr.flash td{animation:posflash .9s ease-out}
-@keyframes posflash{from{background:var(--soft)}to{background:transparent}}
+.pos-cash .inp{min-height:48px;font-size:20px}
+.pos-cash .chip{padding:10px 14px;font-size:15px}
+.pos-change{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:8px 12px;border-radius:10px;background:var(--surface);border:1px solid var(--line)}
+.pos-change b{font-family:var(--font-display);font-weight:800;font-size:32px;font-variant-numeric:tabular-nums}
+.pos-more{align-self:flex-start}
+.pos-back[hidden]{display:none}
+.pos-pay-foot{flex:0 0 auto;padding:12px 16px calc(12px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:var(--surface)}
+.pos-go{width:100%;min-height:60px;font-size:21px}
+.pos-bar{display:none}
+.pos-bar-total{font-family:var(--font-display);font-weight:800;font-size:28px;line-height:1.05}
+.pos-next{min-height:54px;min-width:150px;font-size:19px}
+/* Teléfono: primero los artículos; "Cobrar" pasa al pago */
+@media (max-width:759px){
+  .pos-t-long{display:none}.pos-t-short{display:inline}
+  .pos-head h3{flex:0 0 auto}
+  .pos-from .small{display:none}
+  .pos-from .inp{max-width:150px}
+  .posx[data-step="cart"] .pos-right{display:none}
+  .posx[data-step="pay"] .pos-left{display:none}
+  .posx[data-step="pay"] .pos-pay-sum{display:flex}
+  .pos-tot{display:none}
+  .pos-bar{display:flex;align-items:center;gap:12px;padding:10px 16px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:var(--surface);flex:0 0 auto}
+  .posx[data-step="pay"] + .pos-bar{display:none}
+  .pos-res{max-height:min(55vh,440px)}
+}
+/* Tableta, laptop y computadora: artículos y cobro lado a lado, todo a la vista */
+@media (min-width:760px){
+  .posx{grid-template-columns:minmax(0,1.35fr) minmax(320px,1fr)}
+  .pos-right{border-left:1px solid var(--line)}
+  .pos-back{display:none}
+}
+@media (min-width:1280px){
+  .posx{grid-template-columns:minmax(0,1.7fr) minmax(400px,1fr)}
+  .pos-left{padding:18px 24px 0}
+  .pos-pay-scroll{padding:18px 22px}
+}
+@media (max-height:700px) and (min-width:760px){
+  .pos-pay-scroll{gap:9px;padding-top:10px}
+  .pay-btn{min-height:44px}
+  .pos-change b,.pos-tot .grand{font-size:28px}
+  .pos-go{min-height:54px}
+}
 /* Versión web: entrada con cuenta y avisos de conexión */
 .conn.offline{background:var(--warn)}
 .who[hidden]{display:none}
@@ -1370,8 +1438,8 @@ const ACT = {}, INP = {}, CHG = {};
 const MS = [];
 function pushModal(html, opts = {}) {
   const layer = document.createElement('div');
-  layer.className = 'layer';
-  layer.innerHTML = `<div class="scrim" data-act="closeModal"></div><div class="sheet ${opts.wide ? 'wide' : ''} ${opts.small ? 'small' : ''}" role="dialog" aria-modal="true">${html}</div>`;
+  layer.className = 'layer' + (opts.full ? ' full' : '');
+  layer.innerHTML = `<div class="scrim" data-act="closeModal"></div><div class="sheet ${opts.wide ? 'wide' : ''} ${opts.small ? 'small' : ''} ${opts.full ? 'full' : ''}" role="dialog" aria-modal="true">${html}</div>`;
   $('#modal-root').appendChild(layer);
   MS.push({ layer, ...opts });
   document.body.classList.add('modal-open');
@@ -2939,77 +3007,105 @@ const saleCalc = s => { const sub = r2(sum(s.lines || [], l => num(l.qty) * num(
 ACT.newSale = () => openSale();
 function openSale(preset = {}) {
   if (!guard()) return;
-  S.sale = { from: 'alm', lines: [], cust: { name: '', phone: '', email: '', addr: '', mun: '' }, pay: 'Efectivo', payRef: '', recv: '', ivuOn: true, note: '', q: '', custOpen: false };
+  S.sale = { from: 'alm', lines: [], cust: { name: '', phone: '', email: '', addr: '', mun: '' }, pay: 'Efectivo', payRef: '', recv: '', ivuOn: true, note: '', q: '', custOpen: false, noteOpen: false, resOpen: false, step: 'cart' };
   if (preset.item) S.sale.lines.push(saleLine(preset.item));
   if (preset.cust) for (const k of Object.keys(S.sale.cust)) if (preset.cust[k]) S.sale.cust[k] = preset.cust[k];
-  const layer = pushModal(`<header class="sh-head"><h3>Venta de mostrador</h3>${closeBtn}</header><div class="sh-body" id="sl-body">${saleBody()}</div><footer class="sh-foot"><button class="btn" type="button" data-act="closeModal">Cancelar</button><button class="btn primary pos-go" id="sl-go" type="button" data-act="saleSubmit">${saleGoLabel()}</button></footer>`, { wide: true, onClose: () => { if (S.sale?.layer === layer) S.sale = null; } });
-  S.sale.layer = layer; initSaleSig();
+  const s = S.sale;
+  const layer = pushModal(`<header class="sh-head pos-head">
+      <button class="icon-btn pos-back" type="button" data-act="saleStep" data-s="cart" aria-label="Volver a los artículos" hidden>${IC.left}</button>
+      <h3><span class="pos-t-long">Venta de mostrador</span><span class="pos-t-short">Venta</span></h3>
+      <label class="pos-from"><span class="small muted">Sale de</span><select class="inp" id="sl-from" data-ch="saleField" data-f="from" aria-label="Sale de">${locs().map(l => `<option value="${esc(l.id)}" ${s.from === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select></label>
+      ${closeBtn}</header>
+    ${saleBody()}`, { full: true, onClose: () => { if (S.sale?.layer === layer) S.sale = null; } });
+  s.layer = layer; initSaleSig();
   const q = layer.querySelector('#sl-q');
-  if (q) { q.addEventListener('keydown', saleQKey); if (!matchMedia('(pointer: coarse)').matches) setTimeout(() => q.focus(), 60); }
+  if (q) {
+    q.addEventListener('keydown', saleQKey);
+    q.addEventListener('focus', () => { if (s.q.trim() && !s.resOpen) { s.resOpen = true; renderSaleResults(); } });
+    if (!matchMedia('(pointer: coarse)').matches) setTimeout(() => q.focus(), 60);
+  }
+  // Tocar fuera de la búsqueda cierra la lista de resultados.
+  layer.addEventListener('pointerdown', e => { if (s.resOpen && !e.target.closest('.pos-search')) { s.resOpen = false; renderSaleResults(); } });
 }
 const saleHasProd = s => s.lines.some(l => S.items.get(l.item)?.type === 'producto');
-/* Venta de mostrador: buscar y añadir en la misma pantalla (Enter añade el primero, sirve con lector de código
-   de barras), cantidades con + y −, forma de pago con un toque y cálculo del cambio en efectivo. */
+/* Venta de mostrador a pantalla completa. En computadora, laptop y tableta: artículos a la izquierda y el cobro
+   a la derecha, todo a la vista. En el teléfono: primero los artículos y "Cobrar" pasa al pago.
+   Buscar y añadir en la misma pantalla (Enter añade el primero; sirve con lector de código de barras),
+   cantidades con + y −, forma de pago con un toque y el cambio en efectivo. */
 function saleBody() {
   const s = S.sale; const hp = saleHasProd(s);
-  return `<div class="posv">
-  <section class="pos-find">
-    <label class="search">${IC.search}<input class="inp" id="sl-q" type="search" placeholder="Número de pieza, nombre o código de barras" value="${esc(s.q)}" data-in="saleQ" autocomplete="off" enterkeyhint="enter" aria-label="Buscar para añadir a la venta"></label>
-    <div id="sl-results">${saleResultsHtml()}</div>
+  return `<div class="posx" id="sl-root" data-step="${s.step}">
+  <section class="pos-left">
+    <div class="pos-search"><label class="search">${IC.search}<input class="inp" id="sl-q" type="search" placeholder="Número de pieza, nombre o código de barras" value="${esc(s.q)}" data-in="saleQ" autocomplete="off" enterkeyhint="enter" aria-label="Buscar para añadir a la venta"></label>
+      <div id="sl-results" class="pos-res">${saleResultsHtml()}</div></div>
+    <div id="sl-recent">${saleRecentHtml()}</div>
+    <div class="pos-lines" id="sl-lines">${saleLinesHtml()}</div>
+    <div class="pos-tot" id="sl-totals">${saleTotalsHtml()}</div>
   </section>
-  <section class="pos-cart">
-    <div class="row-wrap" style="align-items:flex-end"><h4 class="grow">Artículos</h4><label class="field" style="min-width:180px"><span>Sale de</span><select class="inp" id="sl-from" data-ch="saleField" data-f="from">${locs().map(l => `<option value="${esc(l.id)}" ${s.from === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select></label></div>
-    <div id="sl-lines">${saleLinesHtml()}</div>
-    <div id="sl-totals">${saleTotalsHtml()}</div>
-    <div id="sl-custbox">${saleCustHtml()}</div>
-    <div id="sl-paybox">${salePayHtml()}</div>
-    <section id="sl-sigsec" class="${hp ? '' : 'hidden'}"><h4>Firma del cliente</h4><canvas class="sig" id="sl-sig" aria-label="Área para que el cliente firme"></canvas><div><button class="btn sm" type="button" data-act="saleSigClear">Borrar firma</button></div></section>
-  </section></div>`;
+  <section class="pos-right">
+    <div class="pos-pay-scroll">
+      <div class="pos-pay-sum" id="sl-paysum">${salePaySumHtml()}</div>
+      <div id="sl-paybox">${salePayHtml()}</div>
+      <div id="sl-custbox">${saleCustHtml()}</div>
+      <div id="sl-notebox">${saleNoteHtml()}</div>
+      <section id="sl-sigsec" class="${hp ? '' : 'hidden'}"><h4>Firma del cliente</h4><canvas class="sig" id="sl-sig" aria-label="Área para que el cliente firme"></canvas><div><button class="btn sm" type="button" data-act="saleSigClear">Borrar firma</button></div></section>
+    </div>
+    <div class="pos-pay-foot"><button class="btn primary pos-go" id="sl-go" type="button" data-act="saleSubmit">${saleGoLabel()}</button></div>
+  </section>
+  </div>
+  <div class="pos-bar"><div class="grow"><div class="small muted" id="sl-bar-n">${saleCountTxt()}</div><b class="pos-bar-total" id="sl-bar-total">${money(saleCalc(s).total)}</b></div><button class="btn primary pos-next" id="sl-next" type="button" data-act="saleStep" data-s="pay" ${s.lines.length ? '' : 'disabled'}>Cobrar</button></div>`;
 }
+const saleCountTxt = () => { const n = r2(sum(S.sale.lines, l => num(l.qty))); return n ? `${fq(n)} ${n === 1 ? 'artículo' : 'artículos'}` : 'Sin artículos'; };
+const salePaySumHtml = () => { const t = saleCalc(S.sale); return `<span class="muted">${saleCountTxt()}</span><b>${money(t.total)}</b>`; };
 const saleIsExact = (it, k) => !!k && (pnKey(it.sku || '') === k || String(it.subs || '').split(/[,;\s]+/).some(x => x && pnKey(x) === k));
 function saleMatches(q) {
   const s = S.sale; const k = pnKey(String(q).trim());
   const inStock = it => !isStocked(it) || qtyAt(it, s.from) > 0;
-  return searchItems(q).slice(0, 60).map((it, i) => [it, i]).sort((a, b) => (saleIsExact(b[0], k) - saleIsExact(a[0], k)) || (inStock(b[0]) - inStock(a[0])) || a[1] - b[1]).slice(0, 8).map(x => x[0]);
+  return searchItems(q).slice(0, 60).map((it, i) => [it, i]).sort((a, b) => (saleIsExact(b[0], k) - saleIsExact(a[0], k)) || (inStock(b[0]) - inStock(a[0])) || a[1] - b[1]).slice(0, 10).map(x => x[0]);
 }
 // Lo vendido hoy en el mostrador, para añadirlo con un toque.
 function saleRecent() {
   const seen = new Set(), out = [];
   for (const x of salesTodayList().sort((a, b) => String(b.at).localeCompare(String(a.at)))) for (const l of x.lines || []) { const it = S.items.get(l.item); if (it && !seen.has(it.id)) { seen.add(it.id); out.push(it); } }
-  return out.slice(0, 10);
+  return out.slice(0, 12);
 }
+const saleRecentHtml = () => { const rec = saleRecent(); return rec.length ? `<div class="chips pos-recent" aria-label="Vendido hoy"><span class="small muted" style="align-self:center">Vendido hoy:</span>${rec.map(it => `<button class="chip" type="button" data-act="saleAddId" data-id="${esc(it.id)}">${esc(trunc(it.name, 30))}</button>`).join('')}</div>` : ''; };
 function saleResultsHtml() {
   const s = S.sale; const q = s.q.trim();
-  if (!q) { const rec = saleRecent(); return rec.length ? `<div class="small muted" style="margin:8px 0 4px">Vendido hoy</div><div class="chips wrap">${rec.map(it => `<button class="chip" type="button" data-act="saleAddId" data-id="${esc(it.id)}">${esc(trunc(it.name, 30))}</button>`).join('')}</div>` : '<p class="small muted" style="margin-top:8px">Escribe o escanea el número de la pieza. Enter añade el primero de la lista.</p>'; }
+  if (!q || !s.resOpen) return '';
   const arr = saleMatches(q);
-  if (!arr.length) return emptyMsg('No aparece en el inventario. Prueba con parte del número o del nombre.');
-  return `<div class="pk-list pos-res">${arr.map((it, i) => `<button class="pk-row${i === 0 ? ' first' : ''}" type="button" data-act="saleAddId" data-id="${esc(it.id)}"><div><b>${esc(it.name)}</b><div class="small muted">${it.sku ? `<span class="mono">${esc(it.sku)}</span>` : ''}${locTxt(it) ? ' · ' + esc(locTxt(it)) : ''}${it.brand ? ' · ' + esc(it.brand) : ''}</div></div><div class="small" style="text-align:right"><b>${money(num(it.price))}</b>${isStocked(it) ? `<br><span class="${qtyAt(it, s.from) > 0 ? 'muted' : 'neg'}">Hay ${fq(qtyAt(it, s.from))}</span>` : ''}</div></button>`).join('')}</div>`;
+  if (!arr.length) return `<p class="small muted" style="padding:10px">No aparece en el inventario. Prueba con parte del número o del nombre.</p>`;
+  return `<div class="pk-list">${arr.map((it, i) => `<button class="pk-row${i === 0 ? ' first' : ''}" type="button" data-act="saleAddId" data-id="${esc(it.id)}"><div><b>${esc(it.name)}</b><div class="small muted">${it.sku ? `<span class="mono">${esc(it.sku)}</span>` : ''}${locTxt(it) ? ' · ' + esc(locTxt(it)) : ''}${it.brand ? ' · ' + esc(it.brand) : ''}</div></div><div class="small" style="text-align:right"><b>${money(num(it.price))}</b>${isStocked(it) ? `<br><span class="${qtyAt(it, s.from) > 0 ? 'muted' : 'neg'}">Hay ${fq(qtyAt(it, s.from))}</span>` : ''}</div></button>`).join('')}</div>`;
 }
 const renderSaleResults = () => { const s = S.sale; const box = s?.layer.querySelector('#sl-results'); if (box) box.innerHTML = saleResultsHtml(); };
 function saleLinesHtml() {
   const s = S.sale;
-  if (!s.lines.length) return emptyMsg('Busca a la izquierda lo que se lleva el cliente.');
-  return `<div class="tbl-wrap"><table class="tbl pos-tbl"><thead><tr><th>Artículo</th><th class="n">Cant.</th><th class="n">Precio</th><th class="n">Total</th><th></th></tr></thead><tbody>${s.lines.map((l, i) => {
+  if (!s.lines.length) return `<div class="pos-empty">${IC.search}<p>Busca arriba lo que se lleva el cliente, o escanea el código.</p></div>`;
+  return s.lines.map((l, i) => {
     const it = S.items.get(l.item); if (!it) return '';
     const hay = isStocked(it) ? qtyAt(it, s.from) : null; const short = hay != null && r2(num(l.qty)) > hay;
-    return `<tr><td class="nm"><b>${esc(it.name)}</b><div class="small muted"><span class="mono">${esc(it.sku || '')}</span>${locTxt(it) ? ' · ' + esc(locTxt(it)) : ''}${hay != null ? ` · <span class="${short ? 'neg' : ''}">hay ${fq(hay)}</span>` : ''}</div>${it.type === 'producto' ? `<input class="inp" style="width:100%;text-align:left;margin-top:6px" id="sl-serial-${i}" placeholder="Número de serie" value="${esc(l.serial)}" data-in="saleLineIn" data-i="${i}" data-f="serial">` : ''}</td>
-      <td class="n"><div class="qty-step"><button class="icon-btn" type="button" data-act="saleQty" data-i="${i}" data-d="-1" aria-label="Uno menos">−</button><input class="inp" id="sl-qty-${i}" inputmode="decimal" value="${esc(l.qty)}" data-in="saleLineIn" data-i="${i}" data-f="qty" aria-label="Cantidad de ${esc(it.name)}"><button class="icon-btn" type="button" data-act="saleQty" data-i="${i}" data-d="1" aria-label="Uno más">+</button></div></td>
-      <td class="n"><input class="inp" id="sl-price-${i}" inputmode="decimal" value="${esc(l.price)}" data-in="saleLineIn" data-i="${i}" data-f="price" aria-label="Precio de ${esc(it.name)}"></td>
-      <td class="n" id="sl-sub-${i}">${money(num(l.qty) * num(l.price))}</td>
-      <td><button class="icon-btn" type="button" data-act="saleRm" data-i="${i}" aria-label="Quitar ${esc(it.name)}">${IC.x}</button></td></tr>`;
-  }).join('')}</tbody></table></div>`;
+    return `<div class="pl" id="sl-line-${i}">
+      <div class="pl-top"><div class="grow"><b>${esc(it.name)}</b><div class="small muted"><span class="mono">${esc(it.sku || '')}</span>${locTxt(it) ? ' · ' + esc(locTxt(it)) : ''}${hay != null ? ` · <span class="${short ? 'neg' : ''}">hay ${fq(hay)}</span>` : ''}</div></div><button class="icon-btn" type="button" data-act="saleRm" data-i="${i}" aria-label="Quitar ${esc(it.name)}">${IC.x}</button></div>
+      <div class="pl-row"><div class="qty-step"><button class="icon-btn" type="button" data-act="saleQty" data-i="${i}" data-d="-1" aria-label="Uno menos">−</button><input class="inp" id="sl-qty-${i}" inputmode="decimal" value="${esc(l.qty)}" data-in="saleLineIn" data-i="${i}" data-f="qty" aria-label="Cantidad de ${esc(it.name)}"><button class="icon-btn" type="button" data-act="saleQty" data-i="${i}" data-d="1" aria-label="Uno más">+</button></div>
+        <span class="muted">×</span><label class="pl-price"><span class="muted">$</span><input class="inp" id="sl-price-${i}" inputmode="decimal" value="${esc(l.price)}" data-in="saleLineIn" data-i="${i}" data-f="price" aria-label="Precio de ${esc(it.name)}"></label>
+        <b class="pl-sub" id="sl-sub-${i}">${money(num(l.qty) * num(l.price))}</b></div>
+      ${it.type === 'producto' ? `<input class="inp" id="sl-serial-${i}" placeholder="Número de serie" value="${esc(l.serial)}" data-in="saleLineIn" data-i="${i}" data-f="serial">` : ''}
+    </div>`;
+  }).join('');
 }
-const saleTotalsHtml = () => { const t = saleCalc(S.sale); return `<div class="totals" style="margin-left:auto"><span>Subtotal</span><span>${money(t.sub)}</span><span>IVU</span><span>${money(t.ivu)}</span><span class="grand">Total</span><span class="grand">${money(t.total)}</span></div>`; };
+const saleTotalsHtml = () => { const t = saleCalc(S.sale); return `<div class="totals"><span>Subtotal</span><span>${money(t.sub)}</span><span>IVU</span><span>${money(t.ivu)}</span><span class="grand">Total</span><span class="grand">${money(t.total)}</span></div>`; };
 const saleGoLabel = () => { const s = S.sale; return s && s.lines.length ? `Cobrar ${money(saleCalc(s).total)}` : 'Registrar venta'; };
 function saleCustHtml() {
   const s = S.sale; const c = s.cust; const hp = saleHasProd(s);
   s.custShown = !!(s.custOpen || hp || c.name || c.phone);
-  if (!s.custShown) return `<div><button class="btn sm" type="button" data-act="saleCustOpen">${IC.plus} Añadir cliente (opcional)</button></div>`;
+  if (!s.custShown) return `<button class="btn pos-more" type="button" data-act="saleCustOpen">${IC.plus} Cliente (opcional)</button>`;
   return `<h4>Cliente <span class="muted small" id="sl-custhint">${hp ? 'necesario para la garantía' : 'opcional'}</span></h4>
     <div class="grid2"><label class="field"><span>Teléfono</span><input class="inp" id="sl-phone" type="tel" inputmode="tel" value="${esc(c.phone)}" data-in="saleCust" data-f="phone" autocomplete="off"></label><label class="field"><span>Nombre</span><input class="inp" id="sl-name" value="${esc(c.name)}" data-in="saleCust" data-f="name" autocomplete="off"></label></div>
     <div id="sl-lookup"></div>
-    <div class="grid3"><label class="field"><span>Email</span><input class="inp" id="sl-email" type="email" value="${esc(c.email)}" data-in="saleCust" data-f="email"></label><label class="field"><span>Dirección</span><input class="inp" id="sl-addr" value="${esc(c.addr)}" data-in="saleCust" data-f="addr"></label><label class="field"><span>Municipio</span><select class="inp" id="sl-mun" data-ch="saleCust" data-f="mun"><option value="">—</option>${MUNICIPIOS.map(([m]) => `<option ${c.mun === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select></label></div>`;
+    <div class="grid2"><label class="field"><span>Email</span><input class="inp" id="sl-email" type="email" value="${esc(c.email)}" data-in="saleCust" data-f="email"></label><label class="field"><span>Municipio</span><select class="inp" id="sl-mun" data-ch="saleCust" data-f="mun"><option value="">—</option>${MUNICIPIOS.map(([m]) => `<option ${c.mun === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select></label></div>
+    <label class="field"><span>Dirección</span><input class="inp" id="sl-addr" value="${esc(c.addr)}" data-in="saleCust" data-f="addr"></label>`;
 }
+const saleNoteHtml = () => { const s = S.sale; return s.noteOpen || s.note ? `<label class="field"><span>Nota en la factura</span><input class="inp" id="sl-note" value="${esc(s.note)}" data-in="saleField" data-f="note"></label>` : `<button class="btn pos-more" type="button" data-act="saleNoteOpen">${IC.plus} Nota en la factura</button>`; };
 // Billetes que más se usan para pagar ese total.
 function saleBills(total) {
   const out = [];
@@ -3018,67 +3114,81 @@ function saleBills(total) {
 }
 function saleChangeHtml() {
   const s = S.sale; const t = saleCalc(s); const r = num(s.recv);
-  if (!String(s.recv).trim() || !t.total) return '';
+  if (!String(s.recv).trim() || !t.total) return '<span class="muted">Cambio</span><b class="muted">—</b>';
   const d = r2(r - t.total);
   return d >= 0 ? `<span>Cambio</span><b>${money(d)}</b>` : `<span class="neg">Faltan</span><b class="neg">${money(-d)}</b>`;
 }
 function salePayHtml() {
   const s = S.sale; const t = saleCalc(s); const cash = s.pay === 'Efectivo';
   const refLbl = { 'ATH Móvil': 'Referencia de ATH Móvil', Tarjeta: 'Número de aprobación o del recibo', Cheque: 'Número de cheque' }[s.pay] || 'Referencia';
-  return `<h4>Pago</h4>
-  <div class="chips wrap" role="group" aria-label="Forma de pago">${PAY_METHODS.slice(0, 5).map(p => `<button class="chip" type="button" data-act="salePay" data-p="${esc(p)}" aria-pressed="${s.pay === p}">${esc(p)}</button>`).join('')}</div>
+  return `<div class="pay-grid" role="group" aria-label="Forma de pago">${PAY_METHODS.slice(0, 5).map(p => `<button class="pay-btn" type="button" data-act="salePay" data-p="${esc(p)}" aria-pressed="${s.pay === p}">${esc(p)}</button>`).join('')}</div>
   ${cash ? `<div class="pos-cash"><label class="field"><span>Recibido</span><input class="inp" id="sl-recv" inputmode="decimal" placeholder="0.00" value="${esc(s.recv)}" data-in="saleRecv"></label>
-    <div class="chips wrap">${t.total ? `<button class="chip" type="button" data-act="saleRecvSet" data-v="${t.total}">Exacto</button>${saleBills(t.total).map(v => `<button class="chip" type="button" data-act="saleRecvSet" data-v="${v}">${money(v).replace('.00', '')}</button>`).join('')}` : ''}</div>
-    <div class="pos-change" id="sl-change">${saleChangeHtml()}</div></div>`
+    <div class="chips wrap">${t.total ? `<button class="chip" type="button" data-act="saleRecvSet" data-v="${t.total}">Exacto</button>${saleBills(t.total).map(v => `<button class="chip" type="button" data-act="saleRecvSet" data-v="${v}">${money(v).replace('.00', '')}</button>`).join('')}` : ''}</div></div>
+    <div class="pos-change" id="sl-change">${saleChangeHtml()}</div>`
     : `<label class="field"><span>${esc(refLbl)}</span><input class="inp" id="sl-ref" value="${esc(s.payRef)}" data-in="saleField" data-f="payRef"></label>`}
-  <label class="chk"><input type="checkbox" id="sl-ivu" data-ch="saleField" data-f="ivuOn" ${s.ivuOn ? 'checked' : ''}> Cobrar IVU (${esc(fq(biz().ivu))}%)</label>
-  <label class="field"><span>Nota en la factura (opcional)</span><input class="inp" id="sl-note" value="${esc(s.note)}" data-in="saleField" data-f="note"></label>`;
+  <label class="chk"><input type="checkbox" id="sl-ivu" data-ch="saleField" data-f="ivuOn" ${s.ivuOn ? 'checked' : ''}> Cobrar IVU (${esc(fq(biz().ivu))}%)</label>`;
 }
 const refreshSaleTotals = () => {
-  const s = S.sale; if (!s) return;
-  s.layer.querySelector('#sl-totals').innerHTML = saleTotalsHtml();
-  const go = s.layer.querySelector('#sl-go'); if (go) go.textContent = saleGoLabel();
-  const ch = s.layer.querySelector('#sl-change'); if (ch) ch.innerHTML = saleChangeHtml();
+  const s = S.sale; if (!s) return; const L = s.layer; const t = saleCalc(s);
+  L.querySelector('#sl-totals').innerHTML = saleTotalsHtml();
+  L.querySelector('#sl-paysum').innerHTML = salePaySumHtml();
+  const go = L.querySelector('#sl-go'); if (go) go.textContent = saleGoLabel();
+  const ch = L.querySelector('#sl-change'); if (ch) ch.innerHTML = saleChangeHtml();
+  L.querySelector('#sl-bar-total').textContent = money(t.total); L.querySelector('#sl-bar-n').textContent = saleCountTxt();
+  L.querySelector('#sl-next').disabled = !s.lines.length;
 };
 const refreshSale = () => {
-  const s = S.sale; if (!s) return;
-  s.layer.querySelector('#sl-lines').innerHTML = saleLinesHtml();
+  const s = S.sale; if (!s) return; const L = s.layer;
+  L.querySelector('#sl-lines').innerHTML = saleLinesHtml();
   refreshSaleTotals();
   const hp = saleHasProd(s);
-  if (!!(s.custOpen || hp || s.cust.name || s.cust.phone) !== s.custShown) s.layer.querySelector('#sl-custbox').innerHTML = saleCustHtml();
-  const hint = s.layer.querySelector('#sl-custhint'); if (hint) hint.textContent = hp ? 'necesario para la garantía' : 'opcional';
-  const sec = s.layer.querySelector('#sl-sigsec');
+  if (!!(s.custOpen || hp || s.cust.name || s.cust.phone) !== s.custShown) L.querySelector('#sl-custbox').innerHTML = saleCustHtml();
+  const hint = L.querySelector('#sl-custhint'); if (hint) hint.textContent = hp ? 'necesario para la garantía' : 'opcional';
+  const sec = L.querySelector('#sl-sigsec');
   if (hp && sec.classList.contains('hidden')) { sec.classList.remove('hidden'); initSaleSig(); } else if (!hp) sec.classList.add('hidden');
-  if (s.pay === 'Efectivo') { const pb = s.layer.querySelector('#sl-paybox'); const f = document.activeElement; if (pb && !pb.contains(f)) pb.innerHTML = salePayHtml(); }
+  if (s.pay === 'Efectivo') { const pb = L.querySelector('#sl-paybox'); if (pb && !pb.contains(document.activeElement)) pb.innerHTML = salePayHtml(); }
 };
 function saleAddItem(it) {
   const s = S.sale; if (!s || !it) return;
   const ex = it.type !== 'producto' && s.lines.find(l => l.item === it.id);
   if (ex) ex.qty = String(r2(num(ex.qty) + 1)); else s.lines.push(saleLine(it));
   refreshSale();
-  const i = ex ? s.lines.indexOf(ex) : s.lines.length - 1; const row = s.layer.querySelector('#sl-qty-' + i)?.closest('tr');
-  if (row) { row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); }
+  const i = ex ? s.lines.indexOf(ex) : s.lines.length - 1; const row = s.layer.querySelector('#sl-line-' + i);
+  if (row) { row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); row.scrollIntoView({ block: 'nearest' }); }
+}
+function saleClearQ(keepFocus) {
+  const s = S.sale; if (!s) return; s.q = ''; s.resOpen = false;
+  const q = s.layer.querySelector('#sl-q'); if (q) { q.value = ''; if (keepFocus && !matchMedia('(pointer: coarse)').matches) q.focus(); }
+  renderSaleResults();
 }
 function saleQKey(e) {
+  const s = S.sale; if (!s) return;
+  if (e.key === 'Escape' && e.target.value) { e.preventDefault(); e.stopPropagation(); saleClearQ(true); return; }
   if (e.key !== 'Enter') return;
   e.preventDefault();
-  const s = S.sale; const q = e.target.value.trim(); if (!s || !q) return;
+  const q = e.target.value.trim(); if (!q) return;
   const arr = saleMatches(q);
   if (!arr.length) { toast(`No aparece en el inventario: ${q}`, 'warn'); e.target.select(); return; }
-  saleAddItem(arr[0]); s.q = ''; e.target.value = ''; renderSaleResults();
+  saleAddItem(arr[0]); saleClearQ(true);
 }
-INP.saleQ = el => { const s = S.sale; if (!s) return; s.q = el.value; renderSaleResults(); };
-ACT.saleAddId = el => {
-  const s = S.sale; const it = S.items.get(el.dataset.id); if (!s || !it) return;
-  saleAddItem(it);
-  if (!matchMedia('(pointer: coarse)').matches) s.layer.querySelector('#sl-q')?.focus();
-};
-ACT.saleQty = el => { const s = S.sale; const l = s?.lines[num(el.dataset.i)]; if (!l) return; const q = r2(num(l.qty) + num(el.dataset.d)); if (q <= 0) { s.lines.splice(num(el.dataset.i), 1); } else l.qty = String(q); refreshSale(); };
+INP.saleQ = el => { const s = S.sale; if (!s) return; s.q = el.value; s.resOpen = !!el.value.trim(); renderSaleResults(); };
+ACT.saleAddId = el => { const s = S.sale; const it = S.items.get(el.dataset.id); if (!s || !it) return; saleAddItem(it); saleClearQ(true); };
+ACT.saleQty = el => { const s = S.sale; const l = s?.lines[num(el.dataset.i)]; if (!l) return; const q = r2(num(l.qty) + num(el.dataset.d)); if (q <= 0) s.lines.splice(num(el.dataset.i), 1); else l.qty = String(q); refreshSale(); };
 ACT.saleCustOpen = () => { const s = S.sale; if (!s) return; s.custOpen = true; s.layer.querySelector('#sl-custbox').innerHTML = saleCustHtml(); s.layer.querySelector('#sl-phone')?.focus(); };
+ACT.saleNoteOpen = () => { const s = S.sale; if (!s) return; s.noteOpen = true; s.layer.querySelector('#sl-notebox').innerHTML = saleNoteHtml(); s.layer.querySelector('#sl-note')?.focus(); };
 ACT.salePay = el => { const s = S.sale; if (!s) return; s.pay = el.dataset.p; s.layer.querySelector('#sl-paybox').innerHTML = salePayHtml(); s.layer.querySelector(s.pay === 'Efectivo' ? '#sl-recv' : '#sl-ref')?.focus(); };
 INP.saleRecv = el => { const s = S.sale; if (!s) return; s.recv = el.value; const ch = s.layer.querySelector('#sl-change'); if (ch) ch.innerHTML = saleChangeHtml(); };
 ACT.saleRecvSet = el => { const s = S.sale; if (!s) return; s.recv = String(num(el.dataset.v).toFixed(2)); const i = s.layer.querySelector('#sl-recv'); if (i) i.value = s.recv; const ch = s.layer.querySelector('#sl-change'); if (ch) ch.innerHTML = saleChangeHtml(); };
-function initSaleSig() { const s = S.sale; const cv = s?.layer.querySelector('#sl-sig'); if (!cv || s.pad || cv.closest('.hidden')) return; s.pad = sigPad(cv); }
+// En el teléfono el cobro es un segundo paso; en pantallas grandes los dos se ven a la vez.
+ACT.saleStep = el => {
+  const s = S.sale; if (!s) return;
+  if (el.dataset.s === 'pay' && !s.lines.length) { toast('Añade al menos un artículo.', 'warn'); return; }
+  s.step = el.dataset.s; const root = s.layer.querySelector('#sl-root'); root.dataset.step = s.step;
+  s.layer.querySelector('.pos-back').hidden = s.step !== 'pay';
+  s.layer.querySelector('.sheet').scrollTop = 0;
+  if (s.step === 'pay') initSaleSig();
+};
+function initSaleSig() { const s = S.sale; const cv = s?.layer.querySelector('#sl-sig'); if (!cv || s.pad || cv.closest('.hidden') || !cv.getClientRects().length) return; s.pad = sigPad(cv); }
 INP.saleLineIn = el => { const s = S.sale; const i = num(el.dataset.i); const l = s?.lines[i]; if (!l) return; l[el.dataset.f] = el.value; const cell = s.layer.querySelector('#sl-sub-' + i); if (cell) cell.textContent = money(num(l.qty) * num(l.price)); refreshSaleTotals(); };
 INP.saleField = CHG.saleField = el => { const s = S.sale; if (!s) return; s[el.dataset.f] = el.type === 'checkbox' ? el.checked : el.value; if (el.dataset.f === 'from') { s.layer.querySelector('#sl-lines').innerHTML = saleLinesHtml(); renderSaleResults(); } refreshSaleTotals(); };
 let saleLookT = 0;
@@ -3761,7 +3871,7 @@ async function boot(hot) {
    Las funciones con el mismo nombre que en los otros archivos los
    reemplazan (en JavaScript gana la última declaración).
    ===================================================================== */
-const APP_VERSION = '2026.11.21-26e87a';
+const APP_VERSION = '2026.11.21-3b0fe5';
 const FB_CONFIG = window.FB_CONFIG || null;
 const PACK = 24;   // el inventario va en 24 documentos (inv/b0…b23), unos 150 artículos en cada uno
 const W = {
