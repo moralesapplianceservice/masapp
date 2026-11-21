@@ -372,6 +372,11 @@ body.modal-open{overflow:hidden}
 .pos-change{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:8px 12px;border-radius:10px;background:var(--surface);border:1px solid var(--line)}
 .pos-change b{font-family:var(--font-display);font-weight:800;font-size:32px;font-variant-numeric:tabular-nums}
 .pos-more{align-self:flex-start}
+.pos-disc{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:flex-end}
+.pos-disc .field{width:120px}
+.pos-disc .inp{min-height:44px;font-size:18px}
+.print-pref{padding:10px 12px;gap:8px}
+.print-pref .row-wrap{gap:8px 12px;align-items:center}
 .pos-back[hidden]{display:none}
 .pos-pay-foot{flex:0 0 auto;padding:12px 16px calc(12px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:var(--surface)}
 .pos-go{width:100%;min-height:60px;font-size:21px}
@@ -2942,12 +2947,15 @@ async function serviceInvoicePdf(o) {
 }
 async function saleInvoicePdf(s, sig) {
   const J = await loadJsPDF(); const P = new Pdf(J); const c = s.cust || {};
-  pdfHead(P, 'FACTURA DE VENTA', s.ref, fmtDateTime(s.at));
+  const rt = s.kind === 'dev';
+  pdfHead(P, rt ? 'DEVOLUCIÓN' : 'FACTURA DE VENTA', s.ref, fmtDateTime(s.at));
+  if (rt) P.text(`Factura original ${s.ofRef}${s.reason ? ' · ' + s.reason : ''}`, { gap: 8 });
   if (c.name || c.phone) { P.label('Cliente'); P.text(c.name || '', { size: 10.5, bold: true, gap: 1 }); P.text([fmtPhone(c.phone), c.email].filter(Boolean).join(' · '), { gap: 1 }); P.text([c.addr, c.mun].filter(Boolean).join(', '), { gap: 8 }); }
   P.table(PDF_COLS, (s.lines || []).map(l => ({ cells: [fq(l.qty), l.sku || '', l.name + (l.serial ? ` · Serie ${l.serial}` : ''), money(l.price), money(num(l.qty) * num(l.price))] })));
-  P.totals([['Subtotal', money(s.sub)], [`IVU (${fq(biz().ivu)}%)`, money(s.ivu)], ['Total', money(s.total), true]]);
-  P.text(`Forma de pago: ${s.pay?.method || ''}${s.pay?.ref ? ' · Ref. ' + s.pay.ref : ''}`, { gap: 8 });
-  const w = (s.lines || []).filter(l => l.warranty || l.wphone);
+  const gross = s.gross != null ? s.gross : r2(num(s.sub) + num(s.disc));
+  P.totals([['Subtotal', money(Math.abs(gross))], ...(num(s.disc) ? [[`Descuento${s.discPct ? ` (${fq(s.discPct)}%)` : ''}`, '-' + money(s.disc)]] : []), [`IVU (${fq(biz().ivu)}%)`, money(Math.abs(num(s.ivu)))], [rt ? 'Total devuelto' : 'Total', money(Math.abs(num(s.total))), true]]);
+  P.text(`${rt ? 'Devuelto en' : 'Forma de pago'}: ${s.pay?.method || ''}${s.pay?.ref ? ' · Ref. ' + s.pay.ref : ''}${s.pay?.received ? ` · Recibido ${money(s.pay.received)} · Cambio ${money(s.pay.change || 0)}` : ''}`, { gap: 8 });
+  const w = rt ? [] : (s.lines || []).filter(l => l.warranty || l.wphone);
   if (w.length) { P.label('Garantía'); w.forEach(l => P.text(`${l.name}${l.serial ? ' (serie ' + l.serial + ')' : ''}: ${l.warranty || 'según el fabricante'}${l.wphone ? `. Para servicio de garantía llame al ${l.wphone}${l.brand ? ' (' + l.brand + ')' : ''}` : ''}.`, { gap: 3 })); P.y += 5; }
   if (s.note) P.text(s.note, { gap: 8 });
   if (sig) { P.label('Firma del cliente'); P.image(sig, 200, 75); }
@@ -3003,11 +3011,14 @@ function sigPad(cv) {
   return { get dirty() { return dirty; }, clear() { blank(); dirty = false; }, data: () => cv.toDataURL('image/png') };
 }
 const saleLine = it => ({ item: it.id, qty: '1', price: fq(num(it.price)), serial: '' });
-const saleCalc = s => { const sub = r2(sum(s.lines || [], l => num(l.qty) * num(l.price))); const ivu = s.ivuOn ? ivuOf(sub) : 0; return { sub, ivu, total: r2(sub + ivu) }; };
+// Descuento de la venta: en dólares o en por ciento, antes del IVU.
+const saleDiscOf = (s, gross) => s.discMode === '%' ? r2(gross * Math.min(100, Math.max(0, num(s.disc))) / 100) : Math.min(gross, Math.max(0, r2(num(s.disc))));
+const saleCalc = s => { const gross = r2(sum(s.lines || [], l => num(l.qty) * num(l.price))); const disc = saleDiscOf(s, gross); const sub = r2(gross - disc); const ivu = s.ivuOn ? ivuOf(sub) : 0; return { gross, disc, sub, ivu, total: r2(sub + ivu) }; };
+const moneyS = n => num(n) < 0 ? '−' + money(-num(n)) : money(n);
 ACT.newSale = () => openSale();
 function openSale(preset = {}) {
   if (!guard()) return;
-  S.sale = { from: 'alm', lines: [], cust: { name: '', phone: '', email: '', addr: '', mun: '' }, pay: 'Efectivo', payRef: '', recv: '', ivuOn: true, note: '', q: '', custOpen: false, noteOpen: false, resOpen: false, step: 'cart' };
+  S.sale = { from: 'alm', lines: [], cust: { name: '', phone: '', email: '', addr: '', mun: '' }, pay: 'Efectivo', payRef: '', recv: '', ivuOn: true, note: '', q: '', custOpen: false, noteOpen: false, resOpen: false, step: 'cart', disc: '', discMode: '$', discOpen: false };
   if (preset.item) S.sale.lines.push(saleLine(preset.item));
   if (preset.cust) for (const k of Object.keys(S.sale.cust)) if (preset.cust[k]) S.sale.cust[k] = preset.cust[k];
   const s = S.sale;
@@ -3046,6 +3057,7 @@ function saleBody() {
     <div class="pos-pay-scroll">
       <div class="pos-pay-sum" id="sl-paysum">${salePaySumHtml()}</div>
       <div id="sl-paybox">${salePayHtml()}</div>
+      <div id="sl-discbox">${saleDiscHtml()}</div>
       <div id="sl-custbox">${saleCustHtml()}</div>
       <div id="sl-notebox">${saleNoteHtml()}</div>
       <section id="sl-sigsec" class="${hp ? '' : 'hidden'}"><h4>Firma del cliente</h4><canvas class="sig" id="sl-sig" aria-label="Área para que el cliente firme"></canvas><div><button class="btn sm" type="button" data-act="saleSigClear">Borrar firma</button></div></section>
@@ -3093,7 +3105,18 @@ function saleLinesHtml() {
     </div>`;
   }).join('');
 }
-const saleTotalsHtml = () => { const t = saleCalc(S.sale); return `<div class="totals"><span>Subtotal</span><span>${money(t.sub)}</span><span>IVU</span><span>${money(t.ivu)}</span><span class="grand">Total</span><span class="grand">${money(t.total)}</span></div>`; };
+const saleTotalsHtml = () => { const t = saleCalc(S.sale); return `<div class="totals"><span>Subtotal</span><span>${money(t.gross)}</span>${t.disc ? `<span>Descuento${S.sale.discMode === '%' ? ` (${esc(fq(num(S.sale.disc)))}%)` : ''}</span><span>−${money(t.disc)}</span>` : ''}<span>IVU</span><span>${money(t.ivu)}</span><span class="grand">Total</span><span class="grand">${money(t.total)}</span></div>`; };
+function saleDiscHtml() {
+  const s = S.sale;
+  if (!s.discOpen && !num(s.disc)) return `<button class="btn pos-more" type="button" data-act="saleDiscOpen">${IC.plus} Descuento</button>`;
+  return `<div class="pos-disc"><label class="field"><span>Descuento</span><input class="inp" id="sl-disc" inputmode="decimal" placeholder="0" value="${esc(s.disc)}" data-in="saleDisc"></label>
+    <div class="chips" role="group" aria-label="Descuento en"><button class="chip" type="button" data-act="saleDiscMode" data-m="$" aria-pressed="${s.discMode !== '%'}">$</button><button class="chip" type="button" data-act="saleDiscMode" data-m="%" aria-pressed="${s.discMode === '%'}">%</button></div>
+    <div class="chips">${[5, 10, 15].map(v => `<button class="chip" type="button" data-act="saleDiscSet" data-v="${v}">${v}%</button>`).join('')}<button class="chip" type="button" data-act="saleDiscSet" data-v="0">Quitar</button></div></div>`;
+}
+ACT.saleDiscOpen = () => { const s = S.sale; if (!s) return; s.discOpen = true; s.layer.querySelector('#sl-discbox').innerHTML = saleDiscHtml(); s.layer.querySelector('#sl-disc')?.focus(); };
+INP.saleDisc = el => { const s = S.sale; if (!s) return; s.disc = el.value; refreshSaleTotals(); };
+ACT.saleDiscMode = el => { const s = S.sale; if (!s) return; s.discMode = el.dataset.m; s.layer.querySelector('#sl-discbox').innerHTML = saleDiscHtml(); refreshSaleTotals(); };
+ACT.saleDiscSet = el => { const s = S.sale; if (!s) return; const v = num(el.dataset.v); s.disc = v ? String(v) : ''; s.discMode = '%'; s.discOpen = !!v; s.layer.querySelector('#sl-discbox').innerHTML = saleDiscHtml(); refreshSaleTotals(); };
 const saleGoLabel = () => { const s = S.sale; return s && s.lines.length ? `Cobrar ${money(saleCalc(s).total)}` : 'Registrar venta'; };
 function saleCustHtml() {
   const s = S.sale; const c = s.cust; const hp = saleHasProd(s);
@@ -3136,6 +3159,7 @@ const refreshSaleTotals = () => {
   const ch = L.querySelector('#sl-change'); if (ch) ch.innerHTML = saleChangeHtml();
   L.querySelector('#sl-bar-total').textContent = money(t.total); L.querySelector('#sl-bar-n').textContent = saleCountTxt();
   L.querySelector('#sl-next').disabled = !s.lines.length;
+  if (document.activeElement?.id === 'sl-disc' || document.activeElement?.id?.startsWith('sl-price') || document.activeElement?.id?.startsWith('sl-qty')) saleBillsRefresh();
 };
 const refreshSale = () => {
   const s = S.sale; if (!s) return; const L = s.layer;
@@ -3146,8 +3170,9 @@ const refreshSale = () => {
   const hint = L.querySelector('#sl-custhint'); if (hint) hint.textContent = hp ? 'necesario para la garantía' : 'opcional';
   const sec = L.querySelector('#sl-sigsec');
   if (hp && sec.classList.contains('hidden')) { sec.classList.remove('hidden'); initSaleSig(); } else if (!hp) sec.classList.add('hidden');
-  if (s.pay === 'Efectivo') { const pb = L.querySelector('#sl-paybox'); if (pb && !pb.contains(document.activeElement)) pb.innerHTML = salePayHtml(); }
+  saleBillsRefresh();
 };
+const saleBillsRefresh = () => { const s = S.sale; if (!s || s.pay !== 'Efectivo') return; const pb = s.layer.querySelector('#sl-paybox'); if (pb && !pb.contains(document.activeElement)) pb.innerHTML = salePayHtml(); };
 function saleAddItem(it) {
   const s = S.sale; if (!s || !it) return;
   const ex = it.type !== 'producto' && s.lines.find(l => l.item === it.id);
@@ -3225,6 +3250,7 @@ ACT.saleSubmit = async () => {
   if (recv && recv < saleCalc(s).total) { toast(`Lo recibido (${money(recv)}) no cubre el total (${money(saleCalc(s).total)}).`, 'warn'); return; }
   const short = lines.filter(l => isStocked(l.it) && qtyAt(l.it, s.from) < r2(num(l.qty)));
   if (short.length && !(await confirmDlg('Existencia insuficiente', `<p>El sistema no tiene suficiente en ${esc(locName(s.from))} de: ${short.map(x => '<b>' + esc(x.it.name) + '</b>').join(', ')}.</p><p class="small muted">Si de verdad lo tienes, continúa y corrígelo luego con un conteo.</p>`, 'Continuar'))) return;
+  const T0 = saleCalc(s); const factor = T0.gross ? T0.sub / T0.gross : 1;
   busy('Registrando la venta…');
   let no;
   try { no = await nextNo('sale', 1000); } catch (e) { busy(null); toast(errMsg(e), 'err'); return; }
@@ -3232,11 +3258,11 @@ ACT.saleSubmit = async () => {
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i]; const q = r2(num(l.qty)); const mid = uid(12);
     busy(`Registrando la venta: ${i + 1} de ${lines.length}`, i / lines.length);
-    try { if (isStocked(l.it)) await applyStock(l.it.id, { [s.from]: -q }, mid); moves.push(mkMove('venta', l.it, q, { id: mid, from: isStocked(l.it) ? s.from : null, ref, price: r2(num(l.price)), note: s.cust.name ? 'Cliente: ' + s.cust.name : '' })); done.push(l); }
+    try { if (isStocked(l.it)) await applyStock(l.it.id, { [s.from]: -q }, mid); moves.push(mkMove('venta', l.it, q, { id: mid, from: isStocked(l.it) ? s.from : null, ref, price: r2(num(l.price) * factor), note: s.cust.name ? 'Cliente: ' + s.cust.name : '' })); done.push(l); }
     catch (e) { fail = { l, e }; break; }
   }
   const sigData = hp && s.pad?.dirty ? s.pad.data() : null;
-  const sale = { id: sid, no, ref, at, by: S.profile, cust: { ...s.cust }, ph: ph10(digits(s.cust.phone)), from: s.from, ivuOn: s.ivuOn, pay: { method: s.pay, ref: cash ? '' : s.payRef.trim(), ...(recv ? { received: recv } : {}) }, note: s.note.trim(), sig: !!sigData,
+  const sale = { id: sid, no, ref, at, by: S.profile, cust: { ...s.cust }, ph: ph10(digits(s.cust.phone)), from: s.from, ivuOn: s.ivuOn, pay: { method: s.pay, ref: cash ? '' : s.payRef.trim(), ...(recv ? { received: recv } : {}) }, disc: T0.disc, ...(T0.disc && s.discMode === '%' ? { discPct: num(s.disc) } : {}), note: s.note.trim(), sig: !!sigData,
     lines: done.map(l => { const mf = mfrFor(l.it.brand); const prod = l.it.type === 'producto'; return { item: l.it.id, sku: l.it.sku || '', name: l.it.name, type: l.it.type, brand: l.it.brand || '', qty: r2(num(l.qty)), price: r2(num(l.price)), serial: (l.serial || '').trim(), warranty: prod ? (l.it.warranty || mf?.terms || '') : '', wphone: prod ? (l.it.wphone || mf?.phone || '') : '' }; }) };
   Object.assign(sale, saleCalc(sale));
   if (recv) sale.pay.change = r2(recv - sale.total);
@@ -3252,28 +3278,166 @@ ACT.saleSubmit = async () => {
   if (fail) toast(`Se registraron ${done.length} de ${lines.length}. Falló "${fail.l.it.name}": ${errMsg(fail.e)}`, 'err');
   if (!done.length) return;
   popModal(null);
-  openSaleDetail(sale, sigData);
+  openSaleDetail(sale, sigData, true);
 };
+const isRet = x => x?.kind === 'dev';
+const saleGross = x => x.gross != null ? x.gross : r2(num(x.sub) + num(x.disc));
 function saleSummary(x) {
-  const b = biz();
-  return [`${b.name} — Factura ${x.ref}`, fmtDateTime(x.at), x.cust?.name ? `Cliente: ${x.cust.name}` : '', ...(x.lines || []).map(l => `• ${fq(l.qty)} × ${l.name}${l.serial ? ' (serie ' + l.serial + ')' : ''}: ${money(num(l.qty) * num(l.price))}`), `Subtotal: ${money(x.sub)}`, `IVU: ${money(x.ivu)}`, `Total: ${money(x.total)}`, `Pago: ${x.pay?.method || ''}`, ...(x.lines || []).filter(l => l.warranty).map(l => `Garantía ${l.name}: ${l.warranty}${l.wphone ? ' · Tel. ' + l.wphone : ''}`), b.note || ''].filter(Boolean).join('\n');
+  const b = biz(); const r = isRet(x);
+  return [`${b.name} — ${r ? `Devolución ${x.ref} (factura ${x.ofRef})` : `Factura ${x.ref}`}`, fmtDateTime(x.at), x.cust?.name ? `Cliente: ${x.cust.name}` : '',
+    ...(x.lines || []).map(l => `• ${fq(l.qty)} × ${l.name}${l.serial ? ' (serie ' + l.serial + ')' : ''}: ${money(num(l.qty) * num(l.price))}`),
+    `Subtotal: ${money(Math.abs(saleGross(x)))}`, num(x.disc) ? `Descuento: −${money(x.disc)}` : '', `IVU: ${money(Math.abs(num(x.ivu)))}`,
+    r ? `Total devuelto: ${money(-num(x.total))}` : `Total: ${money(x.total)}`, `${r ? 'Devuelto en' : 'Pago'}: ${x.pay?.method || ''}`,
+    ...(r ? [] : (x.lines || []).filter(l => l.warranty).map(l => `Garantía ${l.name}: ${l.warranty}${l.wphone ? ' · Tel. ' + l.wphone : ''}`)), b.note || ''].filter(Boolean).join('\n');
 }
-function openSaleDetail(sale, sigData) {
+// Lo que queda por devolver de cada línea de una venta.
+const retLeft = (sale, i) => r2(num(sale.lines?.[i]?.qty) - num(sale.ret?.[i]));
+const PRINT_PAPER = () => lsGet('printPaper') || 'carta';
+const PRINT_AUTO = () => lsGet('printAuto') === '1';
+function openSaleDetail(sale, sigData, fresh) {
   S.saleView = { sale, sig: sigData || null }; S.copyText = saleSummary(sale);
-  const wa = waUrl(sale.cust?.phone, S.copyText);
-  pushModal(`<header class="sh-head"><span class="stub">${esc(sale.no)}</span><div class="grow"><h3>Factura ${esc(sale.ref)}</h3><div class="small muted">${esc(fmtDateTime(sale.at))}${sale.cust?.name ? ' · ' + esc(sale.cust.name) : ''} · ${esc(techName(sale.by))}</div></div>${closeBtn}</header>
+  const wa = waUrl(sale.cust?.phone, S.copyText); const r = isRet(sale);
+  const canRet = !r && (sale.lines || []).some((l, i) => retLeft(sale, i) > 0);
+  const rets = Object.values(sale.rets || {});
+  const paper = PRINT_PAPER();
+  pushModal(`<header class="sh-head"><span class="stub">${esc(sale.no)}</span><div class="grow"><h3>${r ? `Devolución ${esc(sale.ref)}` : `Factura ${esc(sale.ref)}`}</h3><div class="small muted">${esc(fmtDateTime(sale.at))}${sale.cust?.name ? ' · ' + esc(sale.cust.name) : ''} · ${esc(techName(sale.by))}</div></div>${closeBtn}</header>
   <div class="sh-body">
-    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Artículo</th><th class="n">Cant.</th><th class="n">Precio</th><th class="n">Total</th></tr></thead><tbody>${(sale.lines || []).map(l => `<tr><td class="nm"><b>${esc(l.name)}</b>${l.serial ? `<div class="small muted">Serie ${esc(l.serial)}</div>` : ''}${l.warranty ? `<div class="small muted">Garantía: ${esc(l.warranty)}${l.wphone ? ' · Tel. ' + esc(l.wphone) : ''}</div>` : ''}</td><td class="n">${fq(l.qty)}</td><td class="n">${money(l.price)}</td><td class="n">${money(num(l.qty) * num(l.price))}</td></tr>`).join('')}</tbody></table></div>
-    <div class="totals" style="margin-left:auto"><span>Subtotal</span><span>${money(sale.sub)}</span><span>IVU</span><span>${money(sale.ivu)}</span><span class="grand">Total</span><span class="grand">${money(sale.total)}</span></div>
-    <p class="small">Pago: <b>${esc(sale.pay?.method || '')}</b>${sale.pay?.ref ? ' · Ref. ' + esc(sale.pay.ref) : ''}${sale.pay?.received ? ` · Recibido ${money(sale.pay.received)} · <b>Cambio ${money(sale.pay.change || 0)}</b>` : ''}</p>
+    ${r ? `<div class="banner info">Devolución de la factura <b>${esc(sale.ofRef)}</b>${sale.reason ? ' · ' + esc(sale.reason) : ''}</div>` : ''}
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Artículo</th><th class="n">Cant.</th><th class="n">Precio</th><th class="n">Total</th></tr></thead><tbody>${(sale.lines || []).map((l, i) => `<tr><td class="nm"><b>${esc(l.name)}</b>${l.serial ? `<div class="small muted">Serie ${esc(l.serial)}</div>` : ''}${!r && l.warranty ? `<div class="small muted">Garantía: ${esc(l.warranty)}${l.wphone ? ' · Tel. ' + esc(l.wphone) : ''}</div>` : ''}${!r && num(sale.ret?.[i]) ? `<div class="small neg">Devuelto: ${fq(sale.ret[i])}</div>` : ''}${r ? `<div class="small muted">${l.back ? 'Volvió a ' + esc(locName(sale.from)) : 'No vuelve al inventario (defectuosa)'}</div>` : ''}</td><td class="n">${fq(l.qty)}</td><td class="n">${money(l.price)}</td><td class="n">${money(num(l.qty) * num(l.price))}</td></tr>`).join('')}</tbody></table></div>
+    <div class="totals" style="margin-left:auto"><span>Subtotal</span><span>${moneyS(saleGross(sale))}</span>${num(sale.disc) ? `<span>Descuento${sale.discPct ? ` (${esc(fq(sale.discPct))}%)` : ''}</span><span>−${money(sale.disc)}</span>` : ''}<span>IVU</span><span>${moneyS(sale.ivu)}</span><span class="grand">${r ? 'Devuelto' : 'Total'}</span><span class="grand">${money(Math.abs(num(sale.total)))}</span></div>
+    <p class="small">${r ? 'Devuelto en' : 'Pago'}: <b>${esc(sale.pay?.method || '')}</b>${sale.pay?.ref ? ' · Ref. ' + esc(sale.pay.ref) : ''}${sale.pay?.received ? ` · Recibido ${money(sale.pay.received)} · <b>Cambio ${money(sale.pay.change || 0)}</b>` : ''}</p>
+    ${rets.length ? `<p class="small">Devoluciones: ${rets.map(x => `<b>${esc(x)}</b>`).join(', ')}</p>` : ''}
+    <section class="card print-pref"><div class="row-wrap"><span class="small"><b>Imprimir en este equipo:</b></span><div class="chips" role="group" aria-label="Papel">${[['80mm', 'Recibo 80 mm'], ['carta', 'Carta']].map(([k, l]) => `<button class="chip" type="button" data-act="printPaper" data-p="${k}" aria-pressed="${paper === k}">${l}</button>`).join('')}</div>
+      <label class="chk small"><input type="checkbox" data-ch="printAuto" ${PRINT_AUTO() ? 'checked' : ''}> Imprimir solo al cobrar</label></div></section>
     <p class="small muted">Esta factura es interna: no sustituye lo que reporten del IVU en su sistema de cobro.</p>
   </div>
-  <footer class="sh-foot"><button class="btn" type="button" data-act="copyText">Copiar</button>${wa ? `<a class="btn" href="${esc(wa)}" target="_blank" rel="noopener">${IC.chat} WhatsApp</a>` : ''}<button class="btn" type="button" data-act="salePdf">${IC.file} Factura PDF</button><button class="btn primary" type="button" data-act="saleNext">${IC.plus} Nueva venta</button></footer>`, { onClose: () => { S.saleView = null; } });
+  <footer class="sh-foot"><button class="btn" type="button" data-act="copyText">Copiar</button>${wa ? `<a class="btn" href="${esc(wa)}" target="_blank" rel="noopener">${IC.chat} WhatsApp</a>` : ''}<button class="btn" type="button" data-act="salePdf">${IC.file} PDF</button>${canRet ? `<button class="btn" type="button" data-act="retOpen">Devolver</button>` : ''}<button class="btn" type="button" data-act="salePrint">Imprimir</button>${r ? '' : `<button class="btn primary" type="button" data-act="saleNext">${IC.plus} Nueva venta</button>`}</footer>`, { onClose: () => { S.saleView = null; } });
+  if (fresh && PRINT_AUTO()) setTimeout(() => ACT.salePrint(), 350);
 }
+ACT.printPaper = el => { lsSet('printPaper', el.dataset.p); el.parentElement.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed', String(c === el))); };
+CHG.printAuto = el => lsSet('printAuto', el.checked ? '1' : null);
+ACT.salePrint = async () => {
+  const v = S.saleView; if (!v) return;
+  let sig = v.sig;
+  if (!sig && v.sale.sig && S.db) { try { const d = await call(() => S.db.doc('sigs/' + v.sale.id).get()); if (d.exists) sig = safeImg(d.data().img); } catch (e) { console.warn(e); } }
+  printHtml(receiptDoc(v.sale, sig, PRINT_PAPER()));
+};
+
+/* ---------- Imprimir: recibo de 80 mm (impresora térmica) o carta ---------- */
+function printHtml(html) {
+  const f = document.createElement('iframe');
+  f.setAttribute('aria-hidden', 'true'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+  document.body.appendChild(f);
+  const d = f.contentWindow.document; d.open(); d.write(html); d.close();
+  const go = () => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { console.warn(e); toast('No se pudo abrir la impresión: usa el PDF.', 'warn'); } setTimeout(() => f.remove(), 60000); };
+  const imgs = [...d.images]; let n = imgs.filter(i => !i.complete).length;
+  if (!n) setTimeout(go, 120); else imgs.forEach(i => { if (!i.complete) i.onload = i.onerror = () => { if (--n === 0) setTimeout(go, 60); }; });
+}
+function receiptDoc(x, sig, paper) {
+  const b = biz(); const r = isRet(x); const c = x.cust || {}; const t80 = paper === '80mm';
+  const ln = (x.lines || []).map(l => t80
+    ? `<div class="l"><div>${fq(l.qty)} × ${esc(l.name)}</div><div class="r">${l.sku ? `<span class="sku">${esc(l.sku)}</span>` : '<span></span>'}<span>${money(num(l.qty) * num(l.price))}</span></div>${l.serial ? `<div class="sm">Serie ${esc(l.serial)}</div>` : ''}${r && !l.back ? '<div class="sm">Defectuosa: no vuelve al inventario</div>' : ''}</div>`
+    : `<tr><td class="n">${fq(l.qty)}</td><td class="mono">${esc(l.sku || '')}</td><td>${esc(l.name)}${l.serial ? `<div class="sm">Serie ${esc(l.serial)}</div>` : ''}${r && !l.back ? '<div class="sm">Defectuosa: no vuelve al inventario</div>' : ''}</td><td class="n">${money(l.price)}</td><td class="n">${money(num(l.qty) * num(l.price))}</td></tr>`).join('');
+  const tot = [['Subtotal', money(Math.abs(saleGross(x)))], ...(num(x.disc) ? [[`Descuento${x.discPct ? ` (${fq(x.discPct)}%)` : ''}`, '−' + money(x.disc)]] : []), [`IVU (${fq(b.ivu)}%)`, money(Math.abs(num(x.ivu)))]];
+  const pay = `${r ? 'Devuelto en' : 'Pago'}: ${esc(x.pay?.method || '')}${x.pay?.ref ? ' · Ref. ' + esc(x.pay.ref) : ''}${x.pay?.received ? `<br>Recibido ${money(x.pay.received)} · Cambio ${money(x.pay.change || 0)}` : ''}`;
+  const war = r ? [] : (x.lines || []).filter(l => l.warranty || l.wphone).map(l => `${esc(l.name)}${l.serial ? ' (serie ' + esc(l.serial) + ')' : ''}: ${esc(l.warranty || 'según el fabricante')}${l.wphone ? `. Servicio de garantía: ${esc(l.wphone)}${l.brand ? ' (' + esc(l.brand) + ')' : ''}` : ''}.`);
+  const title = r ? 'DEVOLUCIÓN' : 'FACTURA';
+  const when = `${fmtDateY(ymd(new Date(x.at)))}, ${fmtTime(x.at)}`;
+  const css = t80
+    ? `@page{size:80mm auto;margin:0}*{box-sizing:border-box}body{margin:0;font:12px/1.35 Arial,Helvetica,sans-serif;color:#000}.w{width:72mm;margin:0 auto;padding:3mm 0 6mm}.c{text-align:center}.biz{font-size:15px;font-weight:700}.sm{font-size:10.5px}.hr{border-top:1px dashed #000;margin:6px 0}.l{margin:4px 0}.r{display:flex;justify-content:space-between;gap:6px}.sku{font-family:monospace;font-size:10.5px}.t{display:flex;justify-content:space-between}.big{font-size:16px;font-weight:700}img{max-width:60mm;max-height:22mm}`
+    : `@page{size:letter;margin:14mm}*{box-sizing:border-box}body{margin:0;font:11pt/1.4 Arial,Helvetica,sans-serif;color:#111}.head{display:flex;justify-content:space-between;gap:20px;border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:12px}.biz{font-size:17pt;font-weight:700}.box{text-align:right}.box .tt{font-size:15pt;font-weight:700;letter-spacing:.04em}.sm{font-size:9pt;color:#444}table{width:100%;border-collapse:collapse;margin:10px 0}th{text-align:left;font-size:9pt;text-transform:uppercase;border-bottom:1px solid #111;padding:5px 4px}td{padding:6px 4px;border-bottom:1px solid #ddd;vertical-align:top}.n{text-align:right;white-space:nowrap}.mono{font-family:monospace}.tot{margin-left:auto;width:260px}.t{display:flex;justify-content:space-between;padding:2px 0}.big{font-size:14pt;font-weight:700;border-top:1px solid #111;margin-top:4px;padding-top:4px}.sec{margin-top:12px}img{max-width:220px;max-height:80px}`;
+  const totHtml = tot.map(([k, v]) => `<div class="t"><span>${esc(k)}</span><span>${v}</span></div>`).join('') + `<div class="t big"><span>${r ? 'Total devuelto' : 'Total'}</span><span>${money(Math.abs(num(x.total)))}</span></div>`;
+  const body = t80
+    ? `<div class="w"><div class="c"><div class="biz">${esc(b.name || '')}</div><div class="sm">${esc(bizAddr())}</div><div class="sm">${esc(b.phone || '')}</div></div>
+      <div class="hr"></div><div class="c"><b>${title} ${esc(x.ref)}</b><div class="sm">${esc(when)}</div>${r ? `<div class="sm">Factura original ${esc(x.ofRef)}</div>` : ''}</div>
+      ${c.name || c.phone ? `<div class="sm" style="margin-top:4px">Cliente: ${esc(c.name || '')}${c.phone ? ' · ' + esc(fmtPhone(c.phone)) : ''}</div>` : ''}
+      <div class="hr"></div>${ln}<div class="hr"></div>${totHtml}<div class="hr"></div><div class="sm">${pay}</div>
+      ${war.length ? `<div class="hr"></div><div class="sm"><b>Garantía</b><br>${war.join('<br>')}</div>` : ''}
+      ${x.note ? `<div class="sm" style="margin-top:4px">${esc(x.note)}</div>` : ''}${r && x.reason ? `<div class="sm">Motivo: ${esc(x.reason)}</div>` : ''}
+      ${sig ? `<div class="hr"></div><div class="sm">Firma del cliente</div><img src="${sig}" alt="">` : ''}
+      ${b.note ? `<div class="hr"></div><div class="c sm">${esc(b.note)}</div>` : ''}</div>`
+    : `<div class="head"><div><div class="biz">${esc(b.name || '')}</div><div class="sm">${esc(bizAddr())}</div><div class="sm">${esc(b.phone || '')}${b.email ? ' · ' + esc(b.email) : ''}</div></div>
+      <div class="box"><div class="tt">${title}</div><div><b>${esc(x.ref)}</b></div><div class="sm">${esc(when)}</div>${r ? `<div class="sm">Factura original ${esc(x.ofRef)}</div>` : ''}</div></div>
+      ${c.name || c.phone ? `<div><div class="sm">Cliente</div><b>${esc(c.name || '')}</b><div class="sm">${esc([fmtPhone(c.phone), c.email].filter(Boolean).join(' · '))}</div><div class="sm">${esc([c.addr, c.mun].filter(Boolean).join(', '))}</div></div>` : ''}
+      <table><thead><tr><th class="n">Cant.</th><th>Número</th><th>Descripción</th><th class="n">Precio</th><th class="n">Total</th></tr></thead><tbody>${ln}</tbody></table>
+      <div class="tot">${totHtml}</div><div class="sec">${pay}</div>
+      ${war.length ? `<div class="sec"><b>Garantía</b><br>${war.join('<br>')}</div>` : ''}
+      ${x.note ? `<div class="sec">${esc(x.note)}</div>` : ''}${r && x.reason ? `<div class="sec">Motivo: ${esc(x.reason)}</div>` : ''}
+      ${sig ? `<div class="sec"><div class="sm">Firma del cliente</div><img src="${sig}" alt=""></div>` : ''}
+      ${b.note ? `<div class="sec sm">${esc(b.note)}</div>` : ''}`;
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${title} ${esc(x.ref)}</title><style>${css}</style></head><body>${body}</body></html>`;
+}
+
+/* ---------- Devoluciones ---------- */
+ACT.retOpen = () => {
+  const v = S.saleView; if (!v || !guard()) return; const sale = v.sale;
+  S.ret = { sale, q: {}, bad: {}, method: sale.pay?.method === 'Crédito / factura' ? 'Crédito / factura' : (sale.pay?.method || 'Efectivo'), reason: 'Pieza equivocada', note: '' };
+  pushModal(`<header class="sh-head"><div class="grow"><h3>Devolución de ${esc(sale.ref)}</h3><div class="small muted">${esc(fmtDateTime(sale.at))}${sale.cust?.name ? ' · ' + esc(sale.cust.name) : ''}</div></div>${closeBtn}</header>
+  <div class="sh-body">
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Artículo</th><th class="n">Vendido</th><th class="n">Devolver</th><th>Estado</th></tr></thead><tbody>${(sale.lines || []).map((l, i) => { const left = retLeft(sale, i); return `<tr><td class="nm"><b>${esc(l.name)}</b><div class="small muted">${money(l.price)} c/u${num(sale.ret?.[i]) ? ` · ya devuelto ${fq(sale.ret[i])}` : ''}</div></td><td class="n">${fq(l.qty)}</td><td class="n">${left > 0 ? `<input class="inp" id="rt-q-${i}" inputmode="decimal" value="" placeholder="0" data-in="retQ" data-i="${i}" aria-label="Cantidad a devolver de ${esc(l.name)}" style="width:70px"><div class="small muted">máx. ${fq(left)}</div>` : '<span class="muted">—</span>'}</td><td>${left > 0 && l.item ? `<label class="chk small"><input type="checkbox" data-ch="retBad" data-i="${i}"> Defectuosa</label>` : ''}</td></tr>`; }).join('')}</tbody></table></div>
+    <p class="small muted">Lo que no está defectuoso vuelve a ${esc(locName(sale.from || 'alm'))}.</p>
+    <div class="grid2"><label class="field"><span>Motivo</span><select class="inp" data-ch="retF" data-f="reason">${['Pieza equivocada', 'Defectuosa', 'El cliente ya no la necesita', 'Error en la factura', 'Otro'].map(x => `<option>${esc(x)}</option>`).join('')}</select></label>
+      <label class="field"><span>Nota (opcional)</span><input class="inp" data-in="retF" data-f="note"></label></div>
+    <h4>Se le devuelve en</h4><div class="pay-grid" role="group" aria-label="Se le devuelve en" id="rt-methods">${retMethodsHtml()}</div>
+    <div id="rt-tot">${retTotalsHtml()}</div>
+  </div>
+  <footer class="sh-foot"><button class="btn" type="button" data-act="closeModal">Cancelar</button><button class="btn primary" type="button" data-act="retGo" id="rt-go">Registrar devolución</button></footer>`, { wide: true, onClose: () => { S.ret = null; } });
+};
+const retMethodsHtml = () => PAY_METHODS.slice(0, 5).map(p => `<button class="pay-btn" type="button" data-act="retMethod" data-p="${esc(p)}" aria-pressed="${S.ret.method === p}">${esc(p === 'Crédito / factura' ? 'Crédito a la cuenta' : p)}</button>`).join('');
+// Lo devuelto se calcula con el precio que pagó (con su descuento) y su IVU.
+function retCalc(R) {
+  const sale = R.sale; const g = saleGross(sale); const factor = g ? num(sale.sub) / g : 1;
+  const lines = (sale.lines || []).map((l, i) => ({ l, i, q: Math.min(retLeft(sale, i), r2(num(R.q[i]))) })).filter(x => x.q > 0);
+  const sub = r2(sum(lines, x => x.q * num(x.l.price) * factor)); const ivu = sale.ivuOn ? ivuOf(sub) : 0;
+  return { lines, factor, sub, ivu, total: r2(sub + ivu) };
+}
+const retTotalsHtml = () => { const t = retCalc(S.ret); return `<div class="totals" style="margin-left:auto"><span>Subtotal</span><span>${money(t.sub)}</span><span>IVU</span><span>${money(t.ivu)}</span><span class="grand">A devolver</span><span class="grand">${money(t.total)}</span></div>`; };
+INP.retQ = el => { const R = S.ret; if (!R) return; R.q[el.dataset.i] = el.value; $('#rt-tot').innerHTML = retTotalsHtml(); };
+CHG.retBad = el => { const R = S.ret; if (R) R.bad[el.dataset.i] = el.checked; };
+INP.retF = CHG.retF = el => { const R = S.ret; if (R) R[el.dataset.f] = el.value; };
+ACT.retMethod = el => { const R = S.ret; if (!R) return; R.method = el.dataset.p; $('#rt-methods').innerHTML = retMethodsHtml(); };
+ACT.retGo = async () => {
+  const R = S.ret; if (!R || !guard()) return; const sale = R.sale;
+  for (const [i, v] of Object.entries(R.q)) if (r2(num(v)) > retLeft(sale, i)) { toast(`Solo quedan ${fq(retLeft(sale, i))} de ${sale.lines[i].name} por devolver.`, 'warn'); return; }
+  const t = retCalc(R);
+  if (!t.lines.length) { toast('Escribe cuánto devuelve de cada artículo.', 'warn'); return; }
+  if (!(await confirmDlg('Registrar devolución', `<p>Se le devuelve <b>${money(t.total)}</b> en ${esc(R.method)}.</p><p class="small muted">Lo que no está defectuoso vuelve al inventario.</p>`, 'Registrar'))) return;
+  busy('Registrando la devolución…');
+  let no; try { no = await nextNo('ret', 1000); } catch (e) { busy(null); toast(errMsg(e), 'err'); return; }
+  const rid = uid(12), at = nowIso(), ref = 'D-' + no, from = sale.from || 'alm'; const moves = []; const done = []; let fail = null;
+  for (const x of t.lines) {
+    const it = S.items.get(x.l.item); const back = !!it && isStocked(it) && !R.bad[x.i]; const mid = uid(12);
+    try {
+      if (back) await applyStock(it.id, { [from]: x.q }, mid);
+      if (it) moves.push(mkMove('devol', it, x.q, { id: mid, to: back ? from : null, ref, price: r2(num(x.l.price) * t.factor), note: `Devolución de ${sale.ref}${back ? '' : ' · defectuosa'}` }));
+      done.push({ ...x, back });
+    } catch (e) { fail = { x, e }; break; }
+  }
+  const rec = { id: rid, kind: 'dev', no, ref, at, by: S.profile, of: sale.id, ofRef: sale.ref, cust: { ...(sale.cust || {}) }, ph: sale.ph || '', from, ivuOn: !!sale.ivuOn, pay: { method: R.method }, reason: R.reason, note: (R.note || '').trim(),
+    lines: done.map(x => ({ item: x.l.item, sku: x.l.sku || '', name: x.l.name, type: x.l.type || '', qty: x.q, price: r2(num(x.l.price) * t.factor), serial: x.l.serial || '', back: x.back })) };
+  const sub = r2(sum(rec.lines, l => l.qty * l.price)); const ivu = rec.ivuOn ? ivuOf(sub) : 0;
+  Object.assign(rec, { gross: -sub, disc: 0, sub: -sub, ivu: -ivu, total: -r2(sub + ivu) });
+  if (done.length) {
+    try {
+      await logMoves(moves);
+      await saveSale(rec);
+      const ret = { ...(sale.ret || {}) }; done.forEach(x => { ret[x.i] = r2(num(ret[x.i]) + x.q); });
+      await appendMap('sales/' + ymd(new Date(sale.at)), 'e', { [sale.id]: { ret, rets: { [rid]: ref } } }, { day: ymd(new Date(sale.at)) });
+      Object.assign(sale, { ret, rets: { ...(sale.rets || {}), [rid]: ref } });
+      if (rec.ph.length >= 7) await upsertCustomer(rec.cust, { id: rid, k: 'devolucion', no: ref, at, what: trunc(rec.lines.map(l => l.name).join(', '), 90), total: rec.total });
+    } catch (e) { console.warn(e); toast('El inventario se ajustó, pero la devolución no se guardó completa: ' + errMsg(e), 'err'); }
+  }
+  busy(null);
+  if (fail) toast(`Se devolvieron ${done.length} de ${t.lines.length}. Falló "${fail.x.l.name}": ${errMsg(fail.e)}`, 'err');
+  if (!done.length) return;
+  popModal(null); popModal(null);
+  toast(`Devolución ${ref} registrada`, 'ok');
+  openSaleDetail(rec, null, true);
+};
 ACT.saleNext = () => { popModal(null); openSale(); };
 ACT.salePdf = () => {
   const v = S.saleView; if (!v) return;
-  return pdfOut('Preparando la factura…', `Factura-${v.sale.ref}.pdf`, async () => {
+  return pdfOut('Preparando la factura…', `${isRet(v.sale) ? 'Devolucion' : 'Factura'}-${v.sale.ref}.pdf`, async () => {
     let sig = v.sig;
     if (!sig && v.sale.sig && S.db) { const d = await call(() => S.db.doc('sigs/' + v.sale.id).get()); if (d.exists) sig = safeImg(d.data().img); }
     return saleInvoicePdf(v.sale, sig);
@@ -3314,7 +3478,7 @@ function vVentas() {
     <p class="small muted">Compara estos totales con los tickets de la máquina de cobro. Los servicios cuentan cuando la orden se completa como cobrada.</p></section>
   <label class="search">${IC.search}<input class="inp" id="q-ventas" type="search" placeholder="Buscar por cliente, número de factura, artículo o serie" value="${esc(u.salesQ)}" data-in="ui" data-k="salesQ" autocomplete="off"></label>
   ${u.salesLoading ? '<p class="muted">Cargando ventas…</p>' : ''}
-  <section class="list">${list.slice(0, 200).map(x => `<button class="ocard" type="button" data-act="saleOpen" data-id="${esc(x.id)}"><span class="stub">${esc(x.no)}</span><span class="oc-main"><span class="oc-title">${esc(x.cust?.name || 'Venta de mostrador')}</span><span class="oc-sub">${esc(trunc((x.lines || []).map(l => `${fq(l.qty)} ${l.name}`).join(', '), 110))}</span><span class="oc-meta"><span>${esc(fmtDateTime(x.at))}</span><span>${esc(x.pay?.method || '')}</span></span></span><span class="i-price">${money(x.total)}</span></button>`).join('') || emptyMsg('No hay ventas en este periodo.')}</section>`;
+  <section class="list">${list.slice(0, 200).map(x => `<button class="ocard" type="button" data-act="saleOpen" data-id="${esc(x.id)}"><span class="stub">${esc(x.no)}</span><span class="oc-main"><span class="oc-title">${isRet(x) ? `Devolución de ${esc(x.ofRef)}${x.cust?.name ? ' · ' + esc(x.cust.name) : ''}` : esc(x.cust?.name || 'Venta de mostrador')}</span><span class="oc-sub">${esc(trunc((x.lines || []).map(l => `${fq(l.qty)} ${l.name}`).join(', '), 110))}</span><span class="oc-meta"><span>${esc(fmtDateTime(x.at))}</span><span>${esc(x.pay?.method || '')}</span></span></span><span class="i-price${isRet(x) ? ' neg' : ''}">${moneyS(x.total)}</span></button>`).join('') || emptyMsg('No hay ventas en este periodo.')}</section>`;
 }
 
 /* ---------- Clientes ---------- */
@@ -3871,7 +4035,7 @@ async function boot(hot) {
    Las funciones con el mismo nombre que en los otros archivos los
    reemplazan (en JavaScript gana la última declaración).
    ===================================================================== */
-const APP_VERSION = '2026.11.21-3b0fe5';
+const APP_VERSION = '2026.11.21-903c7e';
 const FB_CONFIG = window.FB_CONFIG || null;
 const PACK = 24;   // el inventario va en 24 documentos (inv/b0…b23), unos 150 artículos en cada uno
 const W = {
