@@ -3508,7 +3508,7 @@ async function filterCustomers() {
   if (q) list = list.filter(c => { const h = norm([c.name, c.id, c.phone, c.phone2, c.addr, c.mun, c.email].join(' ')); return words.every(w => h.includes(w)) || (raw.length >= 4 && (c.id.includes(raw) || digits(c.phone2).includes(raw))); });
   if (d.length === 10 && !list.some(c => c.id === d) && S.db) { try { const s = await call(() => S.db.doc('customers/' + d).get()); if (s.exists) list = [{ id: s.id, ...s.data() }, ...list]; } catch { /* sin conexión */ } }
   S.ui.custList = list.slice(0, 150);
-  const archOn = IMP.st?.hist?.done;
+  const archOn = archReady();
   if (!archOn || q.length < 3 || !S.db) { S.ui.archList = []; schedule(); return; }
   if (!ARCH.all) { S.ui.archLoading = true; schedule(); try { await archAll(); } catch (e) { console.warn('registro', e); } S.ui.archLoading = false; }
   if (S.ui.custQ.trim() !== q) return;
@@ -3516,15 +3516,19 @@ async function filterCustomers() {
   S.ui.archList = archSearch(q).filter(x => !x.ph || !ids.has(x.ph));
   schedule();
 }
+const archRowHtml = x => `<button class="irow" type="button" data-act="archOpen" data-ph="${esc(x.ph)}"><div><div class="i-name">${esc(x.name || 'Sin nombre')}</div><div class="i-meta">${x.ph ? esc(fmtPhone(x.ph)) : 'Sin teléfono'} · ${x.n} ${x.n === 1 ? 'servicio' : 'servicios'}${x.last?.date ? ' · último ' + esc(fmtDateY(x.last.date)) : ''}${x.last?.tech ? ' · ' + esc(x.last.tech) : ''}</div></div><span class="small muted">${x.last?.inv ? 'Factura ' + esc(x.last.inv) : ''}</span></button>`;
 function vClientes() {
-  const u = S.ui; const list = u.custList || []; const arch = u.archList || []; const archOn = IMP.st?.hist?.done;
-  return `<section class="sec-head"><h1>Clientes</h1><span class="muted small">${(u.custAll || []).length} recientes</span></section>
+  const u = S.ui; const list = u.custList || []; const arch = u.archList || []; const archOn = archReady();
+  if (archOn && !ARCH.all && !ARCH.loading && S.db && !u.archFailed) archAll().then(() => schedule()).catch(e => { console.warn('registro', e); u.archFailed = true; schedule(); });
+  const archPh = ARCH.all ? ARCH.all.filter(x => x.ph).length : 0, archSv = ARCH.all ? sum(ARCH.all, x => x.n) : 0;
+  return `<section class="sec-head"><h1>Clientes</h1><span class="muted small">${(u.custAll || []).length} en la app${archPh ? ` · ${fmtN(archPh)} en el registro` : ''}</span></section>
   <label class="search">${IC.search}<input class="inp" id="q-cli" type="search" placeholder="Nombre, teléfono, dirección o pueblo" value="${esc(u.custQ)}" data-in="custQ" autocomplete="off"></label>
-  ${archOn && !u.custQ ? '<p class="small muted">Escribe un nombre o un teléfono para buscar también en el registro de servicios anteriores.</p>' : ''}
+  ${archOn && !u.custQ ? `<section class="card"><h3>Registro de servicios anteriores</h3><p class="small">${ARCH.all ? `${fmtN(archPh)} clientes con teléfono y ${fmtN(archSv)} servicios. Busca arriba por nombre o teléfono para ver el historial de cualquiera.` : ARCH.loading ? 'Cargando el registro…' : 'Busca arriba por nombre o teléfono.'}</p></section>` : ''}
   ${u.custLoading ? '<p class="muted">Cargando clientes…</p>' : ''}
   <section class="list">${list.map(c => `<button class="irow" type="button" data-act="custOpen" data-id="${esc(c.id)}"><div><div class="i-name">${esc(c.name || 'Sin nombre')}</div><div class="i-meta">${esc(fmtPhone(c.phone || c.id))}${c.mun ? ' · ' + esc(c.mun) : ''}${c.addr ? ' · ' + esc(trunc(c.addr, 50)) : ''}</div></div><span class="small muted">${Object.keys(c.hist || {}).length} en historial</span></button>`).join('') || (u.custLoading || arch.length || u.archLoading ? '' : emptyMsg(u.custQ ? 'No se encontró ningún cliente.' : 'Los clientes se añaden solos al registrar llamadas y ventas con teléfono.'))}</section>
   ${u.archLoading ? '<p class="muted small">Buscando en el registro de servicios…</p>' : ''}
-  ${arch.length ? `<section><h2>En el registro de servicios anteriores</h2><div class="list">${arch.map(x => `<button class="irow" type="button" data-act="archOpen" data-ph="${esc(x.ph)}"><div><div class="i-name">${esc(x.name || 'Sin nombre')}</div><div class="i-meta">${x.ph ? esc(fmtPhone(x.ph)) : 'Sin teléfono'} · ${x.n} ${x.n === 1 ? 'servicio' : 'servicios'}${x.last?.date ? ' · último ' + esc(fmtDateY(x.last.date)) : ''}</div></div><span class="small muted">${x.last ? 'Factura ' + esc(x.last.inv) : ''}</span></button>`).join('')}</div></section>` : ''}`;
+  ${archOn && !u.custQ && ARCH.all ? `<section><h2>Atendidos más recientemente</h2><div class="list">${archRecent().map(x => archRowHtml(x)).join('')}</div></section>` : ''}
+  ${arch.length ? `<section><h2>En el registro de servicios anteriores</h2><div class="list">${arch.map(x => archRowHtml(x)).join('')}</div></section>` : ''}`;
 }
 ACT.custOpen = async el => {
   const id = el.dataset.id; if (!S.db) return;
@@ -3886,6 +3890,10 @@ async function archFor(phone) {
   }
   return (ARCH.docs.get(k)[d] || []).map(archRec);
 }
+// ¿Ya se cargó el registro de servicios? (la versión de Claude marca hist.done; la web guarda los conteos)
+const archReady = () => !!(IMP.st && (IMP.st.hist?.done || IMP.st.counts?.services || IMP.st.counts?.docs));
+// Los clientes atendidos más recientemente según el registro.
+const archRecent = (n = 40) => (ARCH.all || []).filter(x => x.ph).sort((a, b) => String(b.last?.date || '').localeCompare(String(a.last?.date || ''))).slice(0, n);
 async function archAll() {
   if (ARCH.all) return ARCH.all;
   if (!ARCH.loading) ARCH.loading = (async () => {
@@ -4047,7 +4055,7 @@ async function boot(hot) {
    Las funciones con el mismo nombre que en los otros archivos los
    reemplazan (en JavaScript gana la última declaración).
    ===================================================================== */
-const APP_VERSION = '2026.11.21-344f68';
+const APP_VERSION = '2026.11.21-2aafec';
 const FB_CONFIG = window.FB_CONFIG || null;
 const PACK = 24;   // el inventario va en 24 documentos (inv/b0…b23), unos 150 artículos en cada uno
 const W = {
@@ -4734,7 +4742,7 @@ async function webImport(plan) {
     busy('Inventario…', 0.01);
     for (const [k, items] of packs) { await settle(W.fs.doc(k).set({ items }, { merge: true }), 60000); n++; busy(`Inventario: ${n} de ${packs.size} grupos`, n / total); }
     await pool(plan.docs, 4, async ([path, d]) => { await settle(W.fs.doc(path).set(d), 60000); n++; if (n % 3 === 0 || n === total) busy(`Registros: ${fmtN(n - packs.size)} de ${fmtN(plan.docs.length)}`, n / total); });
-    await settle(W.fs.doc('meta/import').set({ finishedAt: nowIso(), by: S.me || '', file: plan.name || '', secs: Math.round((Date.now() - t0) / 1000), counts: { items: plan.items.length, docs: plan.docs.length, services: plan.services } }), 30000);
+    await settle(W.fs.doc('meta/import').set({ finishedAt: nowIso(), by: S.me || '', file: plan.name || '', secs: Math.round((Date.now() - t0) / 1000), counts: { items: plan.items.length, docs: plan.docs.length, services: plan.services }, hist: { done: plan.docs.filter(([p]) => p.startsWith('archivo/')).length } }), 30000);
     ARCH.docs.clear(); ARCH.all = null; S.ui.custLoaded = false; S.ui.sales = null; S.ui.stats = null; S.ui.moves = null;
     busy(null);
     toast(`Listo: ${fmtN(plan.items.length)} artículos y ${fmtN(plan.docs.length)} registros cargados.`, 'ok');
