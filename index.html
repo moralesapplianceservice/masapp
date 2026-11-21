@@ -320,6 +320,27 @@ body.modal-open{overflow:hidden}
 .busy .card{min-width:260px;max-width:86vw;align-items:stretch}
 .loading{display:grid;place-items:center;min-height:50vh;color:var(--muted);text-align:center;gap:12px}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+/* Venta de mostrador */
+.posv{display:grid;gap:18px;align-items:start}
+.pos-find,.pos-cart{display:flex;flex-direction:column;gap:12px;min-width:0}
+.pos-find{gap:6px}
+@media (min-width:900px){.posv{grid-template-columns:minmax(0,5fr) minmax(0,7fr)}.pos-find{position:sticky;top:0}}
+.pos-res{margin-top:6px}
+.pk-row.first{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.chips.wrap{flex-wrap:wrap;overflow:visible}
+.qty-step{display:inline-flex;align-items:center;gap:4px}
+.tbl .qty-step input.inp{width:52px;text-align:center;padding:6px 4px}
+.pos-tbl input.inp{width:74px}
+.pos-tbl td.nm{min-width:150px}
+.pos-tbl .icon-btn{width:34px;height:34px}
+.qty-step .icon-btn{font-weight:800;font-size:18px}
+.pos-cash{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:flex-end}
+.pos-cash .field{width:150px}
+.pos-change{display:flex;align-items:baseline;gap:10px;min-height:38px}
+.pos-change b{font-family:var(--font-display);font-weight:800;font-size:30px;font-variant-numeric:tabular-nums}
+.pos-go{min-width:190px;font-size:17px}
+tr.flash td{animation:posflash .9s ease-out}
+@keyframes posflash{from{background:var(--soft)}to{background:transparent}}
 /* Versión web: entrada con cuenta y avisos de conexión */
 .conn.offline{background:var(--warn)}
 .who[hidden]{display:none}
@@ -2918,49 +2939,148 @@ const saleCalc = s => { const sub = r2(sum(s.lines || [], l => num(l.qty) * num(
 ACT.newSale = () => openSale();
 function openSale(preset = {}) {
   if (!guard()) return;
-  S.sale = { from: 'alm', lines: [], cust: { name: '', phone: '', email: '', addr: '', mun: '' }, pay: 'Efectivo', payRef: '', ivuOn: true, note: '' };
+  S.sale = { from: 'alm', lines: [], cust: { name: '', phone: '', email: '', addr: '', mun: '' }, pay: 'Efectivo', payRef: '', recv: '', ivuOn: true, note: '', q: '', custOpen: false };
   if (preset.item) S.sale.lines.push(saleLine(preset.item));
   if (preset.cust) for (const k of Object.keys(S.sale.cust)) if (preset.cust[k]) S.sale.cust[k] = preset.cust[k];
-  const layer = pushModal(`<header class="sh-head"><h3>Venta de mostrador</h3>${closeBtn}</header><div class="sh-body" id="sl-body">${saleBody()}</div><footer class="sh-foot"><button class="btn" type="button" data-act="closeModal">Cancelar</button><button class="btn primary" type="button" data-act="saleSubmit">Registrar venta</button></footer>`, { wide: true, onClose: () => { if (S.sale?.layer === layer) S.sale = null; } });
+  const layer = pushModal(`<header class="sh-head"><h3>Venta de mostrador</h3>${closeBtn}</header><div class="sh-body" id="sl-body">${saleBody()}</div><footer class="sh-foot"><button class="btn" type="button" data-act="closeModal">Cancelar</button><button class="btn primary pos-go" id="sl-go" type="button" data-act="saleSubmit">${saleGoLabel()}</button></footer>`, { wide: true, onClose: () => { if (S.sale?.layer === layer) S.sale = null; } });
   S.sale.layer = layer; initSaleSig();
+  const q = layer.querySelector('#sl-q');
+  if (q) { q.addEventListener('keydown', saleQKey); if (!matchMedia('(pointer: coarse)').matches) setTimeout(() => q.focus(), 60); }
 }
 const saleHasProd = s => s.lines.some(l => S.items.get(l.item)?.type === 'producto');
+/* Venta de mostrador: buscar y añadir en la misma pantalla (Enter añade el primero, sirve con lector de código
+   de barras), cantidades con + y −, forma de pago con un toque y cálculo del cambio en efectivo. */
 function saleBody() {
-  const s = S.sale; const c = s.cust; const hp = saleHasProd(s);
-  return `
-  <section><h4>Artículos</h4><div id="sl-lines">${saleLinesHtml()}</div>
-    <div class="row-wrap" style="align-items:flex-end"><button class="btn" type="button" data-act="saleAdd">${IC.plus} Añadir artículo</button><span class="spacer"></span><label class="field" style="min-width:200px"><span>Sale de</span><select class="inp" id="sl-from" data-ch="saleField" data-f="from">${locs().map(l => `<option value="${esc(l.id)}" ${s.from === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select></label></div>
-    <div id="sl-totals">${saleTotalsHtml()}</div></section>
-  <section><h4>Cliente <span class="muted small" id="sl-custhint">${hp ? 'necesario para la garantía' : 'opcional'}</span></h4>
-    <div class="grid2"><label class="field"><span>Teléfono</span><input class="inp" id="sl-phone" type="tel" inputmode="tel" value="${esc(c.phone)}" data-in="saleCust" data-f="phone" autocomplete="off"></label><label class="field"><span>Nombre</span><input class="inp" id="sl-name" value="${esc(c.name)}" data-in="saleCust" data-f="name" autocomplete="off"></label></div>
-    <div id="sl-lookup"></div>
-    <div class="grid3"><label class="field"><span>Email</span><input class="inp" id="sl-email" type="email" value="${esc(c.email)}" data-in="saleCust" data-f="email"></label><label class="field"><span>Dirección</span><input class="inp" id="sl-addr" value="${esc(c.addr)}" data-in="saleCust" data-f="addr"></label><label class="field"><span>Municipio</span><select class="inp" id="sl-mun" data-ch="saleCust" data-f="mun"><option value="">—</option>${MUNICIPIOS.map(([m]) => `<option ${c.mun === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select></label></div>
+  const s = S.sale; const hp = saleHasProd(s);
+  return `<div class="posv">
+  <section class="pos-find">
+    <label class="search">${IC.search}<input class="inp" id="sl-q" type="search" placeholder="Número de pieza, nombre o código de barras" value="${esc(s.q)}" data-in="saleQ" autocomplete="off" enterkeyhint="enter" aria-label="Buscar para añadir a la venta"></label>
+    <div id="sl-results">${saleResultsHtml()}</div>
   </section>
-  <section><h4>Pago</h4><div class="grid3">
-    <label class="field"><span>Forma de pago</span><select class="inp" id="sl-pay" data-ch="saleField" data-f="pay">${PAY_METHODS.slice(0, 5).map(p => `<option ${s.pay === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></label>
-    <label class="field"><span>Referencia del cobro (# de ticket o ATH)</span><input class="inp" id="sl-ref" value="${esc(s.payRef)}" data-in="saleField" data-f="payRef"></label>
-    <label class="chk" style="align-self:end"><input type="checkbox" id="sl-ivu" data-ch="saleField" data-f="ivuOn" ${s.ivuOn ? 'checked' : ''}> Cobrar IVU (${esc(fq(biz().ivu))}%)</label></div>
-    <label class="field"><span>Nota en la factura (opcional)</span><input class="inp" id="sl-note" value="${esc(s.note)}" data-in="saleField" data-f="note"></label></section>
-  <section id="sl-sigsec" class="${hp ? '' : 'hidden'}"><h4>Firma del cliente</h4><canvas class="sig" id="sl-sig" aria-label="Área para que el cliente firme"></canvas><div><button class="btn sm" type="button" data-act="saleSigClear">Borrar firma</button></div></section>`;
+  <section class="pos-cart">
+    <div class="row-wrap" style="align-items:flex-end"><h4 class="grow">Artículos</h4><label class="field" style="min-width:180px"><span>Sale de</span><select class="inp" id="sl-from" data-ch="saleField" data-f="from">${locs().map(l => `<option value="${esc(l.id)}" ${s.from === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select></label></div>
+    <div id="sl-lines">${saleLinesHtml()}</div>
+    <div id="sl-totals">${saleTotalsHtml()}</div>
+    <div id="sl-custbox">${saleCustHtml()}</div>
+    <div id="sl-paybox">${salePayHtml()}</div>
+    <section id="sl-sigsec" class="${hp ? '' : 'hidden'}"><h4>Firma del cliente</h4><canvas class="sig" id="sl-sig" aria-label="Área para que el cliente firme"></canvas><div><button class="btn sm" type="button" data-act="saleSigClear">Borrar firma</button></div></section>
+  </section></div>`;
 }
+const saleIsExact = (it, k) => !!k && (pnKey(it.sku || '') === k || String(it.subs || '').split(/[,;\s]+/).some(x => x && pnKey(x) === k));
+function saleMatches(q) {
+  const s = S.sale; const k = pnKey(String(q).trim());
+  const inStock = it => !isStocked(it) || qtyAt(it, s.from) > 0;
+  return searchItems(q).slice(0, 60).map((it, i) => [it, i]).sort((a, b) => (saleIsExact(b[0], k) - saleIsExact(a[0], k)) || (inStock(b[0]) - inStock(a[0])) || a[1] - b[1]).slice(0, 8).map(x => x[0]);
+}
+// Lo vendido hoy en el mostrador, para añadirlo con un toque.
+function saleRecent() {
+  const seen = new Set(), out = [];
+  for (const x of salesTodayList().sort((a, b) => String(b.at).localeCompare(String(a.at)))) for (const l of x.lines || []) { const it = S.items.get(l.item); if (it && !seen.has(it.id)) { seen.add(it.id); out.push(it); } }
+  return out.slice(0, 10);
+}
+function saleResultsHtml() {
+  const s = S.sale; const q = s.q.trim();
+  if (!q) { const rec = saleRecent(); return rec.length ? `<div class="small muted" style="margin:8px 0 4px">Vendido hoy</div><div class="chips wrap">${rec.map(it => `<button class="chip" type="button" data-act="saleAddId" data-id="${esc(it.id)}">${esc(trunc(it.name, 30))}</button>`).join('')}</div>` : '<p class="small muted" style="margin-top:8px">Escribe o escanea el número de la pieza. Enter añade el primero de la lista.</p>'; }
+  const arr = saleMatches(q);
+  if (!arr.length) return emptyMsg('No aparece en el inventario. Prueba con parte del número o del nombre.');
+  return `<div class="pk-list pos-res">${arr.map((it, i) => `<button class="pk-row${i === 0 ? ' first' : ''}" type="button" data-act="saleAddId" data-id="${esc(it.id)}"><div><b>${esc(it.name)}</b><div class="small muted">${it.sku ? `<span class="mono">${esc(it.sku)}</span>` : ''}${locTxt(it) ? ' · ' + esc(locTxt(it)) : ''}${it.brand ? ' · ' + esc(it.brand) : ''}</div></div><div class="small" style="text-align:right"><b>${money(num(it.price))}</b>${isStocked(it) ? `<br><span class="${qtyAt(it, s.from) > 0 ? 'muted' : 'neg'}">Hay ${fq(qtyAt(it, s.from))}</span>` : ''}</div></button>`).join('')}</div>`;
+}
+const renderSaleResults = () => { const s = S.sale; const box = s?.layer.querySelector('#sl-results'); if (box) box.innerHTML = saleResultsHtml(); };
 function saleLinesHtml() {
   const s = S.sale;
-  if (!s.lines.length) return emptyMsg('Añade lo que se lleva el cliente.');
-  return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Artículo</th><th class="n">Hay</th><th class="n">Cant.</th><th class="n">Precio</th><th class="n">Total</th><th></th></tr></thead><tbody>${s.lines.map((l, i) => {
+  if (!s.lines.length) return emptyMsg('Busca a la izquierda lo que se lleva el cliente.');
+  return `<div class="tbl-wrap"><table class="tbl pos-tbl"><thead><tr><th>Artículo</th><th class="n">Cant.</th><th class="n">Precio</th><th class="n">Total</th><th></th></tr></thead><tbody>${s.lines.map((l, i) => {
     const it = S.items.get(l.item); if (!it) return '';
-    return `<tr><td class="nm"><b>${esc(it.name)}</b><div class="small muted mono">${esc(it.sku || '')}${locTxt(it) ? ' · ' + esc(locTxt(it)) : ''}</div>${it.type === 'producto' ? `<input class="inp" style="width:100%;text-align:left;margin-top:6px" id="sl-serial-${i}" placeholder="Número de serie" value="${esc(l.serial)}" data-in="saleLineIn" data-i="${i}" data-f="serial">` : ''}</td>
-      <td class="n">${isStocked(it) ? fq(qtyAt(it, s.from)) : '—'}</td>
-      <td class="n"><input class="inp" id="sl-qty-${i}" inputmode="decimal" value="${esc(l.qty)}" data-in="saleLineIn" data-i="${i}" data-f="qty" aria-label="Cantidad de ${esc(it.name)}"></td>
+    const hay = isStocked(it) ? qtyAt(it, s.from) : null; const short = hay != null && r2(num(l.qty)) > hay;
+    return `<tr><td class="nm"><b>${esc(it.name)}</b><div class="small muted"><span class="mono">${esc(it.sku || '')}</span>${locTxt(it) ? ' · ' + esc(locTxt(it)) : ''}${hay != null ? ` · <span class="${short ? 'neg' : ''}">hay ${fq(hay)}</span>` : ''}</div>${it.type === 'producto' ? `<input class="inp" style="width:100%;text-align:left;margin-top:6px" id="sl-serial-${i}" placeholder="Número de serie" value="${esc(l.serial)}" data-in="saleLineIn" data-i="${i}" data-f="serial">` : ''}</td>
+      <td class="n"><div class="qty-step"><button class="icon-btn" type="button" data-act="saleQty" data-i="${i}" data-d="-1" aria-label="Uno menos">−</button><input class="inp" id="sl-qty-${i}" inputmode="decimal" value="${esc(l.qty)}" data-in="saleLineIn" data-i="${i}" data-f="qty" aria-label="Cantidad de ${esc(it.name)}"><button class="icon-btn" type="button" data-act="saleQty" data-i="${i}" data-d="1" aria-label="Uno más">+</button></div></td>
       <td class="n"><input class="inp" id="sl-price-${i}" inputmode="decimal" value="${esc(l.price)}" data-in="saleLineIn" data-i="${i}" data-f="price" aria-label="Precio de ${esc(it.name)}"></td>
       <td class="n" id="sl-sub-${i}">${money(num(l.qty) * num(l.price))}</td>
       <td><button class="icon-btn" type="button" data-act="saleRm" data-i="${i}" aria-label="Quitar ${esc(it.name)}">${IC.x}</button></td></tr>`;
   }).join('')}</tbody></table></div>`;
 }
 const saleTotalsHtml = () => { const t = saleCalc(S.sale); return `<div class="totals" style="margin-left:auto"><span>Subtotal</span><span>${money(t.sub)}</span><span>IVU</span><span>${money(t.ivu)}</span><span class="grand">Total</span><span class="grand">${money(t.total)}</span></div>`; };
-const refreshSale = () => { const s = S.sale; if (!s) return; s.layer.querySelector('#sl-lines').innerHTML = saleLinesHtml(); s.layer.querySelector('#sl-totals').innerHTML = saleTotalsHtml(); const hp = saleHasProd(s); s.layer.querySelector('#sl-custhint').textContent = hp ? 'necesario para la garantía' : 'opcional'; const sec = s.layer.querySelector('#sl-sigsec'); if (hp && sec.classList.contains('hidden')) { sec.classList.remove('hidden'); initSaleSig(); } };
+const saleGoLabel = () => { const s = S.sale; return s && s.lines.length ? `Cobrar ${money(saleCalc(s).total)}` : 'Registrar venta'; };
+function saleCustHtml() {
+  const s = S.sale; const c = s.cust; const hp = saleHasProd(s);
+  s.custShown = !!(s.custOpen || hp || c.name || c.phone);
+  if (!s.custShown) return `<div><button class="btn sm" type="button" data-act="saleCustOpen">${IC.plus} Añadir cliente (opcional)</button></div>`;
+  return `<h4>Cliente <span class="muted small" id="sl-custhint">${hp ? 'necesario para la garantía' : 'opcional'}</span></h4>
+    <div class="grid2"><label class="field"><span>Teléfono</span><input class="inp" id="sl-phone" type="tel" inputmode="tel" value="${esc(c.phone)}" data-in="saleCust" data-f="phone" autocomplete="off"></label><label class="field"><span>Nombre</span><input class="inp" id="sl-name" value="${esc(c.name)}" data-in="saleCust" data-f="name" autocomplete="off"></label></div>
+    <div id="sl-lookup"></div>
+    <div class="grid3"><label class="field"><span>Email</span><input class="inp" id="sl-email" type="email" value="${esc(c.email)}" data-in="saleCust" data-f="email"></label><label class="field"><span>Dirección</span><input class="inp" id="sl-addr" value="${esc(c.addr)}" data-in="saleCust" data-f="addr"></label><label class="field"><span>Municipio</span><select class="inp" id="sl-mun" data-ch="saleCust" data-f="mun"><option value="">—</option>${MUNICIPIOS.map(([m]) => `<option ${c.mun === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select></label></div>`;
+}
+// Billetes que más se usan para pagar ese total.
+function saleBills(total) {
+  const out = [];
+  for (const step of [5, 10, 20, 50, 100]) { const v = Math.ceil((total + 0.001) / step) * step; if (v > total && !out.includes(v)) out.push(v); }
+  return out.slice(0, 4);
+}
+function saleChangeHtml() {
+  const s = S.sale; const t = saleCalc(s); const r = num(s.recv);
+  if (!String(s.recv).trim() || !t.total) return '';
+  const d = r2(r - t.total);
+  return d >= 0 ? `<span>Cambio</span><b>${money(d)}</b>` : `<span class="neg">Faltan</span><b class="neg">${money(-d)}</b>`;
+}
+function salePayHtml() {
+  const s = S.sale; const t = saleCalc(s); const cash = s.pay === 'Efectivo';
+  const refLbl = { 'ATH Móvil': 'Referencia de ATH Móvil', Tarjeta: 'Número de aprobación o del recibo', Cheque: 'Número de cheque' }[s.pay] || 'Referencia';
+  return `<h4>Pago</h4>
+  <div class="chips wrap" role="group" aria-label="Forma de pago">${PAY_METHODS.slice(0, 5).map(p => `<button class="chip" type="button" data-act="salePay" data-p="${esc(p)}" aria-pressed="${s.pay === p}">${esc(p)}</button>`).join('')}</div>
+  ${cash ? `<div class="pos-cash"><label class="field"><span>Recibido</span><input class="inp" id="sl-recv" inputmode="decimal" placeholder="0.00" value="${esc(s.recv)}" data-in="saleRecv"></label>
+    <div class="chips wrap">${t.total ? `<button class="chip" type="button" data-act="saleRecvSet" data-v="${t.total}">Exacto</button>${saleBills(t.total).map(v => `<button class="chip" type="button" data-act="saleRecvSet" data-v="${v}">${money(v).replace('.00', '')}</button>`).join('')}` : ''}</div>
+    <div class="pos-change" id="sl-change">${saleChangeHtml()}</div></div>`
+    : `<label class="field"><span>${esc(refLbl)}</span><input class="inp" id="sl-ref" value="${esc(s.payRef)}" data-in="saleField" data-f="payRef"></label>`}
+  <label class="chk"><input type="checkbox" id="sl-ivu" data-ch="saleField" data-f="ivuOn" ${s.ivuOn ? 'checked' : ''}> Cobrar IVU (${esc(fq(biz().ivu))}%)</label>
+  <label class="field"><span>Nota en la factura (opcional)</span><input class="inp" id="sl-note" value="${esc(s.note)}" data-in="saleField" data-f="note"></label>`;
+}
+const refreshSaleTotals = () => {
+  const s = S.sale; if (!s) return;
+  s.layer.querySelector('#sl-totals').innerHTML = saleTotalsHtml();
+  const go = s.layer.querySelector('#sl-go'); if (go) go.textContent = saleGoLabel();
+  const ch = s.layer.querySelector('#sl-change'); if (ch) ch.innerHTML = saleChangeHtml();
+};
+const refreshSale = () => {
+  const s = S.sale; if (!s) return;
+  s.layer.querySelector('#sl-lines').innerHTML = saleLinesHtml();
+  refreshSaleTotals();
+  const hp = saleHasProd(s);
+  if (!!(s.custOpen || hp || s.cust.name || s.cust.phone) !== s.custShown) s.layer.querySelector('#sl-custbox').innerHTML = saleCustHtml();
+  const hint = s.layer.querySelector('#sl-custhint'); if (hint) hint.textContent = hp ? 'necesario para la garantía' : 'opcional';
+  const sec = s.layer.querySelector('#sl-sigsec');
+  if (hp && sec.classList.contains('hidden')) { sec.classList.remove('hidden'); initSaleSig(); } else if (!hp) sec.classList.add('hidden');
+  if (s.pay === 'Efectivo') { const pb = s.layer.querySelector('#sl-paybox'); const f = document.activeElement; if (pb && !pb.contains(f)) pb.innerHTML = salePayHtml(); }
+};
+function saleAddItem(it) {
+  const s = S.sale; if (!s || !it) return;
+  const ex = it.type !== 'producto' && s.lines.find(l => l.item === it.id);
+  if (ex) ex.qty = String(r2(num(ex.qty) + 1)); else s.lines.push(saleLine(it));
+  refreshSale();
+  const i = ex ? s.lines.indexOf(ex) : s.lines.length - 1; const row = s.layer.querySelector('#sl-qty-' + i)?.closest('tr');
+  if (row) { row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); }
+}
+function saleQKey(e) {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const s = S.sale; const q = e.target.value.trim(); if (!s || !q) return;
+  const arr = saleMatches(q);
+  if (!arr.length) { toast(`No aparece en el inventario: ${q}`, 'warn'); e.target.select(); return; }
+  saleAddItem(arr[0]); s.q = ''; e.target.value = ''; renderSaleResults();
+}
+INP.saleQ = el => { const s = S.sale; if (!s) return; s.q = el.value; renderSaleResults(); };
+ACT.saleAddId = el => {
+  const s = S.sale; const it = S.items.get(el.dataset.id); if (!s || !it) return;
+  saleAddItem(it);
+  if (!matchMedia('(pointer: coarse)').matches) s.layer.querySelector('#sl-q')?.focus();
+};
+ACT.saleQty = el => { const s = S.sale; const l = s?.lines[num(el.dataset.i)]; if (!l) return; const q = r2(num(l.qty) + num(el.dataset.d)); if (q <= 0) { s.lines.splice(num(el.dataset.i), 1); } else l.qty = String(q); refreshSale(); };
+ACT.saleCustOpen = () => { const s = S.sale; if (!s) return; s.custOpen = true; s.layer.querySelector('#sl-custbox').innerHTML = saleCustHtml(); s.layer.querySelector('#sl-phone')?.focus(); };
+ACT.salePay = el => { const s = S.sale; if (!s) return; s.pay = el.dataset.p; s.layer.querySelector('#sl-paybox').innerHTML = salePayHtml(); s.layer.querySelector(s.pay === 'Efectivo' ? '#sl-recv' : '#sl-ref')?.focus(); };
+INP.saleRecv = el => { const s = S.sale; if (!s) return; s.recv = el.value; const ch = s.layer.querySelector('#sl-change'); if (ch) ch.innerHTML = saleChangeHtml(); };
+ACT.saleRecvSet = el => { const s = S.sale; if (!s) return; s.recv = String(num(el.dataset.v).toFixed(2)); const i = s.layer.querySelector('#sl-recv'); if (i) i.value = s.recv; const ch = s.layer.querySelector('#sl-change'); if (ch) ch.innerHTML = saleChangeHtml(); };
 function initSaleSig() { const s = S.sale; const cv = s?.layer.querySelector('#sl-sig'); if (!cv || s.pad || cv.closest('.hidden')) return; s.pad = sigPad(cv); }
-INP.saleLineIn = el => { const s = S.sale; const i = num(el.dataset.i); const l = s?.lines[i]; if (!l) return; l[el.dataset.f] = el.value; const cell = s.layer.querySelector('#sl-sub-' + i); if (cell) cell.textContent = money(num(l.qty) * num(l.price)); s.layer.querySelector('#sl-totals').innerHTML = saleTotalsHtml(); };
-INP.saleField = CHG.saleField = el => { const s = S.sale; if (!s) return; s[el.dataset.f] = el.type === 'checkbox' ? el.checked : el.value; if (el.dataset.f === 'from') s.layer.querySelector('#sl-lines').innerHTML = saleLinesHtml(); s.layer.querySelector('#sl-totals').innerHTML = saleTotalsHtml(); };
+INP.saleLineIn = el => { const s = S.sale; const i = num(el.dataset.i); const l = s?.lines[i]; if (!l) return; l[el.dataset.f] = el.value; const cell = s.layer.querySelector('#sl-sub-' + i); if (cell) cell.textContent = money(num(l.qty) * num(l.price)); refreshSaleTotals(); };
+INP.saleField = CHG.saleField = el => { const s = S.sale; if (!s) return; s[el.dataset.f] = el.type === 'checkbox' ? el.checked : el.value; if (el.dataset.f === 'from') { s.layer.querySelector('#sl-lines').innerHTML = saleLinesHtml(); renderSaleResults(); } refreshSaleTotals(); };
 let saleLookT = 0;
 INP.saleCust = CHG.saleCust = el => { const s = S.sale; if (!s) return; s.cust[el.dataset.f] = el.value; if (el.dataset.f === 'phone') { clearTimeout(saleLookT); saleLookT = setTimeout(() => saleLookup(el.value), 450); } };
 async function saleLookup(v) {
@@ -2980,10 +3100,7 @@ ACT.saleCustUse = () => { const s = S.sale; const f = s?.found; if (!f) return; 
 ACT.saleAdd = async () => {
   const s = S.sale; if (!s) return;
   const it = await pickItemDlg({ title: 'Añadir a la venta', loc: s.from });
-  if (!it || S.sale !== s) return;
-  const ex = it.type !== 'producto' && s.lines.find(l => l.item === it.id);
-  if (ex) ex.qty = String(r2(num(ex.qty) + 1)); else s.lines.push(saleLine(it));
-  refreshSale();
+  if (it && S.sale === s) saleAddItem(it);
 };
 ACT.saleRm = el => { const s = S.sale; if (!s) return; s.lines.splice(num(el.dataset.i), 1); refreshSale(); };
 ACT.saleSigClear = () => S.sale?.pad?.clear();
@@ -2994,6 +3111,8 @@ ACT.saleSubmit = async () => {
   for (const l of lines) if (r2(num(l.qty)) <= 0) { toast(`Revisa la cantidad de ${l.it.name}.`, 'warn'); return; }
   const hp = lines.some(l => l.it.type === 'producto');
   if (hp && !s.cust.name.trim()) { toast('Para vender un equipo escribe el nombre del cliente; va en la garantía.', 'warn'); return; }
+  const cash = s.pay === 'Efectivo'; const recv = cash && String(s.recv).trim() ? r2(num(s.recv)) : 0;
+  if (recv && recv < saleCalc(s).total) { toast(`Lo recibido (${money(recv)}) no cubre el total (${money(saleCalc(s).total)}).`, 'warn'); return; }
   const short = lines.filter(l => isStocked(l.it) && qtyAt(l.it, s.from) < r2(num(l.qty)));
   if (short.length && !(await confirmDlg('Existencia insuficiente', `<p>El sistema no tiene suficiente en ${esc(locName(s.from))} de: ${short.map(x => '<b>' + esc(x.it.name) + '</b>').join(', ')}.</p><p class="small muted">Si de verdad lo tienes, continúa y corrígelo luego con un conteo.</p>`, 'Continuar'))) return;
   busy('Registrando la venta…');
@@ -3007,9 +3126,10 @@ ACT.saleSubmit = async () => {
     catch (e) { fail = { l, e }; break; }
   }
   const sigData = hp && s.pad?.dirty ? s.pad.data() : null;
-  const sale = { id: sid, no, ref, at, by: S.profile, cust: { ...s.cust }, ph: ph10(digits(s.cust.phone)), from: s.from, ivuOn: s.ivuOn, pay: { method: s.pay, ref: s.payRef.trim() }, note: s.note.trim(), sig: !!sigData,
+  const sale = { id: sid, no, ref, at, by: S.profile, cust: { ...s.cust }, ph: ph10(digits(s.cust.phone)), from: s.from, ivuOn: s.ivuOn, pay: { method: s.pay, ref: cash ? '' : s.payRef.trim(), ...(recv ? { received: recv } : {}) }, note: s.note.trim(), sig: !!sigData,
     lines: done.map(l => { const mf = mfrFor(l.it.brand); const prod = l.it.type === 'producto'; return { item: l.it.id, sku: l.it.sku || '', name: l.it.name, type: l.it.type, brand: l.it.brand || '', qty: r2(num(l.qty)), price: r2(num(l.price)), serial: (l.serial || '').trim(), warranty: prod ? (l.it.warranty || mf?.terms || '') : '', wphone: prod ? (l.it.wphone || mf?.phone || '') : '' }; }) };
   Object.assign(sale, saleCalc(sale));
+  if (recv) sale.pay.change = r2(recv - sale.total);
   if (done.length) {
     try {
       await logMoves(moves);
@@ -3035,11 +3155,12 @@ function openSaleDetail(sale, sigData) {
   <div class="sh-body">
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Artículo</th><th class="n">Cant.</th><th class="n">Precio</th><th class="n">Total</th></tr></thead><tbody>${(sale.lines || []).map(l => `<tr><td class="nm"><b>${esc(l.name)}</b>${l.serial ? `<div class="small muted">Serie ${esc(l.serial)}</div>` : ''}${l.warranty ? `<div class="small muted">Garantía: ${esc(l.warranty)}${l.wphone ? ' · Tel. ' + esc(l.wphone) : ''}</div>` : ''}</td><td class="n">${fq(l.qty)}</td><td class="n">${money(l.price)}</td><td class="n">${money(num(l.qty) * num(l.price))}</td></tr>`).join('')}</tbody></table></div>
     <div class="totals" style="margin-left:auto"><span>Subtotal</span><span>${money(sale.sub)}</span><span>IVU</span><span>${money(sale.ivu)}</span><span class="grand">Total</span><span class="grand">${money(sale.total)}</span></div>
-    <p class="small">Pago: <b>${esc(sale.pay?.method || '')}</b>${sale.pay?.ref ? ' · Ref. ' + esc(sale.pay.ref) : ''}</p>
+    <p class="small">Pago: <b>${esc(sale.pay?.method || '')}</b>${sale.pay?.ref ? ' · Ref. ' + esc(sale.pay.ref) : ''}${sale.pay?.received ? ` · Recibido ${money(sale.pay.received)} · <b>Cambio ${money(sale.pay.change || 0)}</b>` : ''}</p>
     <p class="small muted">Esta factura es interna: no sustituye lo que reporten del IVU en su sistema de cobro.</p>
   </div>
-  <footer class="sh-foot"><button class="btn" type="button" data-act="copyText">Copiar</button>${wa ? `<a class="btn" href="${esc(wa)}" target="_blank" rel="noopener">${IC.chat} WhatsApp</a>` : ''}<button class="btn primary" type="button" data-act="salePdf">${IC.file} Factura PDF</button></footer>`, { onClose: () => { S.saleView = null; } });
+  <footer class="sh-foot"><button class="btn" type="button" data-act="copyText">Copiar</button>${wa ? `<a class="btn" href="${esc(wa)}" target="_blank" rel="noopener">${IC.chat} WhatsApp</a>` : ''}<button class="btn" type="button" data-act="salePdf">${IC.file} Factura PDF</button><button class="btn primary" type="button" data-act="saleNext">${IC.plus} Nueva venta</button></footer>`, { onClose: () => { S.saleView = null; } });
 }
+ACT.saleNext = () => { popModal(null); openSale(); };
 ACT.salePdf = () => {
   const v = S.saleView; if (!v) return;
   return pdfOut('Preparando la factura…', `Factura-${v.sale.ref}.pdf`, async () => {
@@ -3640,7 +3761,7 @@ async function boot(hot) {
    Las funciones con el mismo nombre que en los otros archivos los
    reemplazan (en JavaScript gana la última declaración).
    ===================================================================== */
-const APP_VERSION = '2026.11.21-dc4cf7';
+const APP_VERSION = '2026.11.21-26e87a';
 const FB_CONFIG = window.FB_CONFIG || null;
 const PACK = 24;   // el inventario va en 24 documentos (inv/b0…b23), unos 150 artículos en cada uno
 const W = {
