@@ -536,7 +536,16 @@ const num = v => { if (typeof v === 'number') return isFinite(v) ? v : 0; const 
 const r2 = n => Math.round((Number(n) || 0) * 100) / 100;
 const money = n => '$' + r2(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 // IVU al centavo más cercano, calculado en centavos exactos (medio centavo sube): una visita de $65 lleva $7.48 de IVU, $72.48 en total.
-const ivuOf = sub => { const c = Math.round(num(sub) * 100), n = Math.abs(c) * Math.round(num(biz().ivu) * 1000), q = Math.floor(n / 100000); return Math.sign(c) * (q + (n - q * 100000 >= 50000 ? 1 : 0)) / 100; };
+// IVU de Puerto Rico: estatal (10.5%) + municipal (1%). Cada parte se calcula en centavos exactos y se redondea
+// al centavo más cercano (medio centavo sube), como se reportan por separado. Una visita de $65 lleva $6.83 + $0.65 = $7.48.
+const ivuRates = () => { const b = biz(); const tot = num(b.ivu); const mu = b.ivuMun != null && b.ivuMun !== '' ? Math.min(num(b.ivuMun), tot) : Math.min(1, tot); return { st: r2(tot - mu), mu, tot }; };
+const centsAt = (sub, rate) => { const c = Math.round(num(sub) * 100), n = Math.abs(c) * Math.round(num(rate) * 1000), q = Math.floor(n / 100000); return Math.sign(c) * (q + (n - q * 100000 >= 50000 ? 1 : 0)) / 100; };
+const ivuParts = sub => { const r = ivuRates(); const st = centsAt(sub, r.st), mu = centsAt(sub, r.mu); return { st, mu, total: r2(st + mu) }; };
+const ivuOf = sub => ivuParts(sub).total;
+// Las dos partes de un IVU ya cobrado (las guardadas, o calculadas del subtotal en registros viejos).
+const ivuSplit = (sub, ivu, saved) => { if (saved && saved.ivuSt != null) return { st: num(saved.ivuSt), mu: num(saved.ivuMu) }; if (!num(ivu)) return { st: 0, mu: 0 }; const st = centsAt(sub, ivuRates().st); return { st, mu: r2(num(ivu) - st) }; };
+const ivuRows = (sub, ivu, saved) => { const r = ivuRates(); const p = ivuSplit(sub, ivu, saved); return [[`IVU estatal (${fq(r.st)}%)`, p.st], [`IVU municipal (${fq(r.mu)}%)`, p.mu]]; };
+const ivuRowsHtml = (sub, ivu, saved, fmt = money) => ivuRows(sub, ivu, saved).map(([k, v]) => `<span>${esc(k)}</span><span>${fmt(v)}</span>`).join('');
 // Dirección del negocio para facturas: no repite el pueblo si ya está escrito en la dirección.
 const bizAddr = () => { const b = biz(); return b.addr && b.mun && norm(b.addr).includes(norm(b.mun)) ? b.addr : [b.addr, b.mun].filter(Boolean).join(', '); };
 const fq = n => { const v = r2(n); return Number.isInteger(v) ? String(v) : v.toLocaleString('en-US', { maximumFractionDigits: 2 }); };
@@ -654,8 +663,8 @@ function orderTotals(o) {
   const ch = o.charges || {};
   const visit = o.waiveVisit ? 0 : num(ch.visit);
   const sub = r2(parts + visit + num(ch.labor) - num(ch.discount));
-  const ivu = o.ivuOn === false ? 0 : ivuOf(sub);
-  return { parts: r2(parts), visitBase: num(ch.visit), visit, labor: num(ch.labor), sub, ivu, total: r2(sub + ivu) };
+  const ip = o.ivuOn === false ? { st: 0, mu: 0, total: 0 } : ivuParts(sub); const ivu = ip.total;
+  return { parts: r2(parts), visitBase: num(ch.visit), visit, labor: num(ch.labor), sub, ivu, ivuSt: ip.st, ivuMu: ip.mu, total: r2(sub + ivu) };
 }
 const movesToday = () => Object.values(S.movesDocs).filter(Boolean).flatMap(d => Object.values(d.e || {})).filter(m => m && m.at).sort((a, b) => String(b.at).localeCompare(String(a.at)));
 
@@ -1404,7 +1413,7 @@ function vAjustes() {
       <label class="field"><span>Teléfono</span><input class="inp" id="b-phone" inputmode="tel" value="${esc(b.phone)}"></label>
       <label class="field"><span>Dirección</span><input class="inp" id="b-addr" value="${esc(b.addr)}"></label>
       <label class="field"><span>Municipio base (de aquí salen las rutas)</span><select class="inp" id="b-mun"><option value="">Escoge…</option>${MUNICIPIOS.map(([m]) => `<option ${b.mun === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select></label>
-      <label class="field"><span>IVU (%)</span><input class="inp" id="b-ivu" inputmode="decimal" value="${esc(b.ivu)}"></label>
+      <label class="field"><span>IVU estatal (%)</span><input class="inp" id="b-ivust" inputmode="decimal" value="${esc(fq(ivuRates().st))}"></label><label class="field"><span>IVU municipal (%)</span><input class="inp" id="b-ivumu" inputmode="decimal" value="${esc(fq(ivuRates().mu))}"></label>
       <label class="field"><span>Email</span><input class="inp" id="b-email" type="email" value="${esc(b.email)}"></label>
     </div>
     <label class="field"><span>Horario (sale en facturas y promociones)</span><input class="inp" id="b-hours" value="${esc(b.hours)}" placeholder="Lunes a viernes 8:00 a. m. a 5:00 p. m."></label>
@@ -1567,7 +1576,7 @@ function orderSheet(M) {
       </div>
       <div class="small muted" id="o-visit-hint">${visitHint(o)}</div>
       <label class="chk"><input type="checkbox" id="o-waive" data-ch="waive" ${o.waiveVisit ? 'checked' : ''}> El cliente autorizó la reparación: no se cobra la visita</label>
-      <div class="row-wrap" style="justify-content:space-between;align-items:flex-start"><label class="chk"><input type="checkbox" id="o-ivu" data-ch="ordCalc" ${o.ivuOn === false ? '' : 'checked'}> Cobrar IVU (${esc(fq(biz().ivu))}%)</label><div class="totals" id="o-totals">${totalsHtml(t)}</div></div>
+      <div class="row-wrap" style="justify-content:space-between;align-items:flex-start"><label class="chk"><input type="checkbox" id="o-ivu" data-ch="ordCalc" ${o.ivuOn === false ? '' : 'checked'}> Cobrar IVU (${esc(fq(ivuRates().st))}% estatal + ${esc(fq(ivuRates().mu))}% municipal)</label><div class="totals" id="o-totals">${totalsHtml(t)}</div></div>
     </section>
     <section><h4>Cobro</h4><div class="grid3">
       <label class="field"><span>Forma de pago</span><select class="inp" id="o-paym"><option value="">Escoge…</option>${PAY_METHODS.map(m => `<option ${o.pay?.method === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select></label>
@@ -1639,7 +1648,7 @@ function linesTable(o) {
   ${lines.map(p => `<tr><td class="nm"><b>${esc(p.name)}</b>${p.sku ? `<div class="small muted mono">${esc(p.sku)}</div>` : ''}</td><td class="small">${p.loc ? esc(locName(p.loc)) : '—'}</td><td class="n">${fq(p.qty)}</td><td class="n">${money(p.price)}</td><td class="n">${money(num(p.qty) * num(p.price))}</td><td><button class="icon-btn" type="button" data-act="rmPart" data-mid="${esc(p.mid)}" aria-label="Quitar ${esc(p.name)}">${IC.x}</button></td></tr>`).join('')}
   </tbody></table></div>`;
 }
-const totalsHtml = t => `<span>Piezas y servicios</span><span>${money(t.parts)}</span>${t.visitBase ? `<span>Visita</span><span>${t.visit ? money(t.visit) : 'No se cobra'}</span>` : ''}${t.labor ? `<span>Mano de obra</span><span>${money(t.labor)}</span>` : ''}<span>Subtotal</span><span>${money(t.sub)}</span><span>IVU</span><span>${money(t.ivu)}</span><span class="grand">Total</span><span class="grand">${money(t.total)}</span>`;
+const totalsHtml = t => `<span>Piezas y servicios</span><span>${money(t.parts)}</span>${t.visitBase ? `<span>Visita</span><span>${t.visit ? money(t.visit) : 'No se cobra'}</span>` : ''}${t.labor ? `<span>Mano de obra</span><span>${money(t.labor)}</span>` : ''}<span>Subtotal</span><span>${money(t.sub)}</span>${ivuRowsHtml(t.sub, t.ivu, t)}<span class="grand">Total</span><span class="grand">${money(t.total)}</span>`;
 function recalcOrder() {
   const M = S.om; if (!M || M.isNew) return;
   const f = readOrderFields();
@@ -1914,7 +1923,7 @@ function summaryText(o) {
   if (num(o.charges?.visit)) L.push(o.waiveVisit ? '• Visita: no se cobra (autorizó la reparación)' : `• Visita: ${money(o.charges.visit)}`);
   if (num(o.charges?.labor)) L.push(`• Mano de obra: ${money(o.charges.labor)}`);
   if (num(o.charges?.discount)) L.push(`• Descuento: -${money(o.charges.discount)}`);
-  if (t.ivu) L.push(`IVU: ${money(t.ivu)}`);
+  if (t.ivu) ivuRows(t.sub, t.ivu, t).forEach(([k, v]) => L.push(`${k}: ${money(v)}`));
   L.push(`Total: ${money(t.total)}`);
   if (hasEst(o.est)) {
     const e = estClean(o.est); const et = estTotals(o.est, o.ivuOn);
@@ -1952,9 +1961,9 @@ function receiptHtml(o) {
 <div class="box"><b>Cliente:</b> ${esc(o.cust?.name || '')} · ${esc(fmtPhone(o.cust?.phone))}<br><b>Dirección:</b> ${esc([o.cust?.addr, o.cust?.mun].filter(Boolean).join(', '))}<br><b>Equipo:</b> ${esc(applLabel(o))}${o.appl?.model ? ' · Modelo ' + esc(o.appl.model) : ''}${o.appl?.serial ? ' · Serie ' + esc(o.appl.serial) : ''} · ${esc(WARRANTY[o.appl?.warranty || 'no'] || '')}<br><b>Técnico:</b> ${esc(techName(o.tech))} · <b>Fecha:</b> ${esc(o.t?.done ? fmtDateTime(o.t.done) : fmtShort(o.date))}</div>
 <p><b>Problema reportado:</b> ${esc(o.problem || '')}</p>${o.diag ? `<p><b>Diagnóstico:</b> ${esc(o.diag)}</p>` : ''}${o.work ? `<p><b>Trabajo realizado:</b> ${esc(o.work)}</p>` : ''}
 <table><thead><tr><th>Descripción</th><th class="r">Cant.</th><th class="r">Precio</th><th class="r">Total</th></tr></thead><tbody>${rows.join('') || '<tr><td colspan="4" class="muted">Sin cargos</td></tr>'}</tbody></table>
-<table class="tot"><tr><td>Subtotal</td><td class="r">${money(t.sub)}</td></tr><tr><td>IVU</td><td class="r">${money(t.ivu)}</td></tr><tr><td class="big">Total</td><td class="r big">${money(t.total)}</td></tr></table>
+<table class="tot"><tr><td>Subtotal</td><td class="r">${money(t.sub)}</td></tr>${ivuRows(t.sub, t.ivu, t).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="r">${money(v)}</td></tr>`).join('')}<tr><td class="big">Total</td><td class="r big">${money(t.total)}</td></tr></table>
 ${o.pay?.method ? `<p><b>Forma de pago:</b> ${esc(o.pay.method)} · ${esc(PAY_STATUS[o.pay.status] || '')}${num(o.pay.amount) ? ' · ' + money(o.pay.amount) : ''}</p>` : ''}
-${hasEst(o.est) ? (() => { const e = estClean(o.est); const et = estTotals(o.est, o.ivuOn); return `<h2>Estimado de reparación <small class="muted">(no incluido en el total)</small></h2><table><thead><tr><th class="r">Cant.</th><th>Núm. de pieza</th><th>Descripción</th><th class="r">Precio</th><th class="r">Monto</th></tr></thead><tbody>${e.lines.map(l => `<tr><td class="r">${fq(l.qty)}</td><td>${esc(l.sku)}</td><td>${esc(l.name)}</td><td class="r">${money(l.price)}</td><td class="r">${money(l.qty * l.price)}</td></tr>`).join('')}${et.labor ? `<tr><td class="r">1</td><td></td><td>Mano de obra</td><td class="r">${money(et.labor)}</td><td class="r">${money(et.labor)}</td></tr>` : ''}</tbody></table><table class="tot"><tr><td>Subtotal</td><td class="r">${money(et.sub)}</td></tr><tr><td>IVU</td><td class="r">${money(et.ivu)}</td></tr><tr><td class="big">Total estimado</td><td class="r big">${money(et.total)}</td></tr></table>`; })() : ''}
+${hasEst(o.est) ? (() => { const e = estClean(o.est); const et = estTotals(o.est, o.ivuOn); return `<h2>Estimado de reparación <small class="muted">(no incluido en el total)</small></h2><table><thead><tr><th class="r">Cant.</th><th>Núm. de pieza</th><th>Descripción</th><th class="r">Precio</th><th class="r">Monto</th></tr></thead><tbody>${e.lines.map(l => `<tr><td class="r">${fq(l.qty)}</td><td>${esc(l.sku)}</td><td>${esc(l.name)}</td><td class="r">${money(l.price)}</td><td class="r">${money(l.qty * l.price)}</td></tr>`).join('')}${et.labor ? `<tr><td class="r">1</td><td></td><td>Mano de obra</td><td class="r">${money(et.labor)}</td><td class="r">${money(et.labor)}</td></tr>` : ''}</tbody></table><table class="tot"><tr><td>Subtotal</td><td class="r">${money(et.sub)}</td></tr>${ivuRows(et.sub, et.ivu).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="r">${money(v)}</td></tr>`).join('')}<tr><td class="big">Total estimado</td><td class="r big">${money(et.total)}</td></tr></table>`; })() : ''}
 ${sig ? `<p><b>Firma del cliente:</b><br><img src="${sig}" alt="Firma"><br>${esc(o.sigName || '')}</p>` : ''}
 <p class="muted">${esc(b.note || '')}</p></body></html>`;
 }
@@ -2147,7 +2156,7 @@ function mvBody() {
   let head = '';
   if (k === 'entrada') head = `<div class="grid3">${locSel('to', 'Entra a')}${txt('supplier', 'Suplidor')}${txt('doc', 'Factura o conduce #')}</div><label class="chk"><input type="checkbox" id="mv-updCost" data-ch="mvField" data-f="updCost" ${mv.updCost ? 'checked' : ''}> Actualizar el costo de cada artículo con el de esta factura</label>`;
   if (k === 'transfer') head = `<div class="grid2">${locSel('from', 'Sale de')}${locSel('to', 'Entra a')}</div>`;
-  if (k === 'venta') head = `<div class="grid3">${locSel('from', 'Sale de')}${txt('cust', 'Cliente (opcional)')}${txt('phone', 'Teléfono (opcional)', 'inputmode="tel"')}</div><div class="grid2"><label class="field"><span>Forma de pago</span><select class="inp" id="mv-pay" data-ch="mvField" data-f="pay">${PAY_METHODS.slice(0, 5).map(p => `<option ${mv.pay === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></label><label class="chk" style="align-self:end"><input type="checkbox" id="mv-ivuOn" data-ch="mvField" data-f="ivuOn" ${mv.ivuOn ? 'checked' : ''}> Cobrar IVU (${esc(fq(biz().ivu))}%)</label></div>`;
+  if (k === 'venta') head = `<div class="grid3">${locSel('from', 'Sale de')}${txt('cust', 'Cliente (opcional)')}${txt('phone', 'Teléfono (opcional)', 'inputmode="tel"')}</div><div class="grid2"><label class="field"><span>Forma de pago</span><select class="inp" id="mv-pay" data-ch="mvField" data-f="pay">${PAY_METHODS.slice(0, 5).map(p => `<option ${mv.pay === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></label><label class="chk" style="align-self:end"><input type="checkbox" id="mv-ivuOn" data-ch="mvField" data-f="ivuOn" ${mv.ivuOn ? 'checked' : ''}> Cobrar IVU (${esc(fq(ivuRates().st))}% estatal + ${esc(fq(ivuRates().mu))}% municipal)</label></div>`;
   if (k === 'ajuste') head = `<div class="grid2">${locSel('to', 'Ubicación')}<label class="field"><span>Razón</span><select class="inp" id="mv-reason" data-ch="mvField" data-f="reason">${ADJ_REASONS.map(r => `<option ${mv.reason === r ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select></label></div>`;
   return `${head}<div id="mv-lines">${mvLines()}</div><div class="row-wrap"><button class="btn" type="button" data-act="mvAdd">${IC.plus} Añadir artículo</button></div><div id="mv-totals">${mvTotals()}</div>`;
 }
@@ -2169,7 +2178,7 @@ function mvLines() {
 const adjDiff = (ln, cur) => { if (ln.real === '') return '<span class="muted">—</span>'; const d = r2(num(ln.real) - cur); return `<span class="${d > 0 ? 'pos' : d < 0 ? 'neg' : ''}">${d > 0 ? '+' : ''}${fq(d)}</span>`; };
 function mvTotals() {
   const mv = S.mv;
-  if (mv.kind === 'venta') { const sub = r2(sum(mv.lines, l => num(l.qty) * num(l.price))); const ivu = mv.ivuOn ? ivuOf(sub) : 0; return `<div class="totals" style="margin-left:auto"><span>Subtotal</span><span>${money(sub)}</span><span>IVU</span><span>${money(ivu)}</span><span class="grand">Total</span><span class="grand">${money(sub + ivu)}</span></div>`; }
+  if (mv.kind === 'venta') { const sub = r2(sum(mv.lines, l => num(l.qty) * num(l.price))); const ivu = mv.ivuOn ? ivuOf(sub) : 0; return `<div class="totals" style="margin-left:auto"><span>Subtotal</span><span>${money(sub)}</span>${ivuRowsHtml(sub, ivu)}<span class="grand">Total</span><span class="grand">${money(sub + ivu)}</span></div>`; }
   if (mv.kind === 'entrada') return `<div class="totals" style="margin-left:auto"><span class="grand">Costo total</span><span class="grand">${money(sum(mv.lines, l => num(l.qty) * num(l.cost)))}</span></div>`;
   return '';
 }
@@ -2240,12 +2249,12 @@ ACT.mvSubmit = async () => {
 };
 function saleText(ref, mv) {
   const b = biz(); const sub = r2(sum(mv.lines, l => num(l.qty) * num(l.price))); const ivu = mv.ivuOn ? ivuOf(sub) : 0;
-  return [`${b.name} — Venta ${ref}`, fmtDateTime(nowIso()), mv.cust ? `Cliente: ${mv.cust}` : '', ...mv.lines.map(l => `• ${fq(l.qty)} × ${l.it.name}: ${money(num(l.qty) * num(l.price))}`), `Subtotal: ${money(sub)}`, `IVU: ${money(ivu)}`, `Total: ${money(sub + ivu)}`, `Pago: ${mv.pay}`, b.note || ''].filter(Boolean).join('\n');
+  return [`${b.name} — Venta ${ref}`, fmtDateTime(nowIso()), mv.cust ? `Cliente: ${mv.cust}` : '', ...mv.lines.map(l => `• ${fq(l.qty)} × ${l.it.name}: ${money(num(l.qty) * num(l.price))}`), `Subtotal: ${money(sub)}`, `${ivuRows(sub, ivu).map(([k, v]) => `${k}: ${money(v)}`).join(' · ')}`, `Total: ${money(sub + ivu)}`, `Pago: ${mv.pay}`, b.note || ''].filter(Boolean).join('\n');
 }
 function saleReceipt(ref, mv) {
   const text = saleText(ref, mv); const wa = waUrl(mv.phone, text); S.copyText = text;
   const sub = r2(sum(mv.lines, l => num(l.qty) * num(l.price))); const ivu = mv.ivuOn ? ivuOf(sub) : 0;
-  pushModal(`<header class="sh-head"><h3>Venta registrada</h3>${closeBtn}</header><div class="sh-body"><div class="totals" style="align-self:stretch"><span>Referencia</span><span class="mono">${esc(ref)}</span><span>Subtotal</span><span>${money(sub)}</span><span>IVU</span><span>${money(ivu)}</span><span class="grand">Total</span><span class="grand">${money(sub + ivu)}</span></div><textarea class="inp" id="rc-text" rows="8" readonly>${esc(text)}</textarea><p class="small muted">Este recibo es interno. Registra la venta también en el sistema que usen para el IVU.</p></div><footer class="sh-foot"><button class="btn" type="button" data-act="copyText">Copiar</button>${wa ? `<a class="btn primary" href="${esc(wa)}" target="_blank" rel="noopener">${IC.chat} Enviar por WhatsApp</a>` : ''}<button class="btn" type="button" data-act="closeModal">Listo</button></footer>`, { small: true });
+  pushModal(`<header class="sh-head"><h3>Venta registrada</h3>${closeBtn}</header><div class="sh-body"><div class="totals" style="align-self:stretch"><span>Referencia</span><span class="mono">${esc(ref)}</span><span>Subtotal</span><span>${money(sub)}</span>${ivuRowsHtml(sub, ivu)}<span class="grand">Total</span><span class="grand">${money(sub + ivu)}</span></div><textarea class="inp" id="rc-text" rows="8" readonly>${esc(text)}</textarea><p class="small muted">Este recibo es interno. Registra la venta también en el sistema que usen para el IVU.</p></div><footer class="sh-foot"><button class="btn" type="button" data-act="copyText">Copiar</button>${wa ? `<a class="btn primary" href="${esc(wa)}" target="_blank" rel="noopener">${IC.chat} Enviar por WhatsApp</a>` : ''}<button class="btn" type="button" data-act="closeModal">Listo</button></footer>`, { small: true });
 }
 
 /* ---------- Conteo físico ---------- */
@@ -2526,7 +2535,7 @@ ACT.backupJson = async () => {
 /* ---------- Ajustes ---------- */
 ACT.saveBiz = async () => {
   const g = id => ($('#' + id)?.value ?? '').trim();
-  const business = { name: g('b-name') || 'Mi negocio', phone: g('b-phone'), addr: g('b-addr'), mun: g('b-mun'), ivu: r2(num(g('b-ivu'))), email: g('b-email'), hours: g('b-hours'), warranty: g('b-warranty'), note: g('b-note') };
+  const business = { name: g('b-name') || 'Mi negocio', phone: g('b-phone'), addr: g('b-addr'), mun: g('b-mun'), ivu: r2(num(g('b-ivust')) + num(g('b-ivumu'))), ivuMun: r2(num(g('b-ivumu'))), email: g('b-email'), hours: g('b-hours'), warranty: g('b-warranty'), note: g('b-note') };
   if (await run('Guardando…', () => saveCfg({ business }))) toast('Datos del negocio guardados', 'ok');
 };
 ACT.saveCats = async () => {
@@ -2713,7 +2722,7 @@ const estClean = est => ({ lines: (est?.lines || []).filter(l => String(l.name |
 const hasEst = est => { const e = estClean(est); return e.lines.length > 0 || e.labor > 0; };
 function estTotals(est, ivuOn = true) { const e = estClean(est); const parts = r2(sum(e.lines, l => l.qty * l.price)); const sub = r2(parts + e.labor); const ivu = ivuOn === false ? 0 : ivuOf(sub); return { parts, labor: e.labor, sub, ivu, total: r2(sub + ivu) }; }
 const estIvuOn = M => { const el = M?.layer?.querySelector('#o-ivu'); return el ? el.checked : M?.o?.ivuOn !== false; };
-const estTotalsHtml = t => `<span>Piezas</span><span>${money(t.parts)}</span><span>Mano de obra</span><span>${money(t.labor)}</span><span>IVU</span><span>${money(t.ivu)}</span><span class="grand">Total estimado</span><span class="grand">${money(t.total)}</span>`;
+const estTotalsHtml = t => `<span>Piezas</span><span>${money(t.parts)}</span><span>Mano de obra</span><span>${money(t.labor)}</span>${ivuRowsHtml(t.sub, t.ivu)}<span class="grand">Total estimado</span><span class="grand">${money(t.total)}</span>`;
 function estBlock(M) {
   const e = M.est;
   const rows = e.lines.map((l, i) => `<div class="est-row">
@@ -2926,7 +2935,7 @@ async function serviceInvoicePdf(o) {
   if (num(ch.labor)) rows.push({ cells: ['1', '', 'Mano de obra', money(ch.labor), money(ch.labor)] });
   if (num(ch.discount)) rows.push({ cells: ['', '', 'Descuento', '', '-' + money(ch.discount)] });
   if (rows.length) P.table(PDF_COLS, rows);
-  P.totals([['Subtotal', money(t.sub)], [`IVU (${fq(biz().ivu)}%)`, money(t.ivu)], ['Total', money(t.total), true]]);
+  P.totals([['Subtotal', money(t.sub)], ...ivuRows(t.sub, t.ivu, t).map(([k, v]) => [k, money(v)]), ['Total', money(t.total), true]]);
   if (o.pay?.method) P.text(`Forma de pago: ${o.pay.method} · ${PAY_STATUS[o.pay.status] || ''}${num(o.pay.amount) ? ' · ' + money(o.pay.amount) : ''}`, { gap: 8 });
   if (hasEst(o.est)) {
     const e = estClean(o.est); const et = estTotals(o.est, o.ivuOn);
@@ -2934,7 +2943,7 @@ async function serviceInvoicePdf(o) {
     const er = e.lines.map(l => ({ cells: [fq(l.qty), l.sku, l.name, money(l.price), money(l.qty * l.price)] }));
     if (e.labor) er.push({ cells: ['1', '', 'Mano de obra', money(e.labor), money(e.labor)] });
     P.table(PDF_COLS, er);
-    P.totals([['Subtotal del estimado', money(et.sub)], [`IVU (${fq(biz().ivu)}%)`, money(et.ivu)], ['Total estimado', money(et.total), true]]);
+    P.totals([['Subtotal del estimado', money(et.sub)], ...ivuRows(et.sub, et.ivu).map(([k, v]) => [k, money(v)]), ['Total estimado', money(et.total), true]]);
   }
   const warr = o.warrantyText ?? biz().warranty;
   if (warr) { P.label('Garantía'); P.text(warr, { gap: 8 }); }
@@ -2953,7 +2962,7 @@ async function saleInvoicePdf(s, sig) {
   if (c.name || c.phone) { P.label('Cliente'); P.text(c.name || '', { size: 10.5, bold: true, gap: 1 }); P.text([fmtPhone(c.phone), c.email].filter(Boolean).join(' · '), { gap: 1 }); P.text([c.addr, c.mun].filter(Boolean).join(', '), { gap: 8 }); }
   P.table(PDF_COLS, (s.lines || []).map(l => ({ cells: [fq(l.qty), l.sku || '', l.name + (l.serial ? ` · Serie ${l.serial}` : ''), money(l.price), money(num(l.qty) * num(l.price))] })));
   const gross = s.gross != null ? s.gross : r2(num(s.sub) + num(s.disc));
-  P.totals([['Subtotal', money(Math.abs(gross))], ...(num(s.disc) ? [[`Descuento${s.discPct ? ` (${fq(s.discPct)}%)` : ''}`, '-' + money(s.disc)]] : []), [`IVU (${fq(biz().ivu)}%)`, money(Math.abs(num(s.ivu)))], [rt ? 'Total devuelto' : 'Total', money(Math.abs(num(s.total))), true]]);
+  P.totals([['Subtotal', money(Math.abs(gross))], ...(num(s.disc) ? [[`Descuento${s.discPct ? ` (${fq(s.discPct)}%)` : ''}`, '-' + money(s.disc)]] : []), ...ivuRows(Math.abs(num(s.sub)), Math.abs(num(s.ivu)), s.ivuSt != null ? { ivuSt: Math.abs(s.ivuSt), ivuMu: Math.abs(s.ivuMu) } : null).map(([k, v]) => [k, money(v)]), [rt ? 'Total devuelto' : 'Total', money(Math.abs(num(s.total))), true]]);
   P.text(`${rt ? 'Devuelto en' : 'Forma de pago'}: ${s.pay?.method || ''}${s.pay?.ref ? ' · Ref. ' + s.pay.ref : ''}${s.pay?.received ? ` · Recibido ${money(s.pay.received)} · Cambio ${money(s.pay.change || 0)}` : ''}`, { gap: 8 });
   const w = rt ? [] : (s.lines || []).filter(l => l.warranty || l.wphone);
   if (w.length) { P.label('Garantía'); w.forEach(l => P.text(`${l.name}${l.serial ? ' (serie ' + l.serial + ')' : ''}: ${l.warranty || 'según el fabricante'}${l.wphone ? `. Para servicio de garantía llame al ${l.wphone}${l.brand ? ' (' + l.brand + ')' : ''}` : ''}.`, { gap: 3 })); P.y += 5; }
@@ -3013,7 +3022,7 @@ function sigPad(cv) {
 const saleLine = it => ({ item: it.id, qty: '1', price: fq(num(it.price)), serial: '' });
 // Descuento de la venta: en dólares o en por ciento, antes del IVU.
 const saleDiscOf = (s, gross) => s.discMode === '%' ? r2(gross * Math.min(100, Math.max(0, num(s.disc))) / 100) : Math.min(gross, Math.max(0, r2(num(s.disc))));
-const saleCalc = s => { const gross = r2(sum(s.lines || [], l => num(l.qty) * num(l.price))); const disc = saleDiscOf(s, gross); const sub = r2(gross - disc); const ivu = s.ivuOn ? ivuOf(sub) : 0; return { gross, disc, sub, ivu, total: r2(sub + ivu) }; };
+const saleCalc = s => { const gross = r2(sum(s.lines || [], l => num(l.qty) * num(l.price))); const disc = saleDiscOf(s, gross); const sub = r2(gross - disc); const ip = s.ivuOn ? ivuParts(sub) : { st: 0, mu: 0, total: 0 }; return { gross, disc, sub, ivu: ip.total, ivuSt: ip.st, ivuMu: ip.mu, total: r2(sub + ip.total) }; };
 const moneyS = n => num(n) < 0 ? '−' + money(-num(n)) : money(n);
 ACT.newSale = () => openSale();
 function openSale(preset = {}) {
@@ -3105,7 +3114,7 @@ function saleLinesHtml() {
     </div>`;
   }).join('');
 }
-const saleTotalsHtml = () => { const t = saleCalc(S.sale); return `<div class="totals"><span>Subtotal</span><span>${money(t.gross)}</span>${t.disc ? `<span>Descuento${S.sale.discMode === '%' ? ` (${esc(fq(num(S.sale.disc)))}%)` : ''}</span><span>−${money(t.disc)}</span>` : ''}<span>IVU</span><span>${money(t.ivu)}</span><span class="grand">Total</span><span class="grand">${money(t.total)}</span></div>`; };
+const saleTotalsHtml = () => { const t = saleCalc(S.sale); return `<div class="totals"><span>Subtotal</span><span>${money(t.gross)}</span>${t.disc ? `<span>Descuento${S.sale.discMode === '%' ? ` (${esc(fq(num(S.sale.disc)))}%)` : ''}</span><span>−${money(t.disc)}</span>` : ''}${ivuRowsHtml(t.sub, t.ivu, t)}<span class="grand">Total</span><span class="grand">${money(t.total)}</span></div>`; };
 function saleDiscHtml() {
   const s = S.sale;
   if (!s.discOpen && !num(s.disc)) return `<button class="btn pos-more" type="button" data-act="saleDiscOpen">${IC.plus} Descuento</button>`;
@@ -3149,7 +3158,7 @@ function salePayHtml() {
     <div class="chips wrap">${t.total ? `<button class="chip" type="button" data-act="saleRecvSet" data-v="${t.total}">Exacto</button>${saleBills(t.total).map(v => `<button class="chip" type="button" data-act="saleRecvSet" data-v="${v}">${money(v).replace('.00', '')}</button>`).join('')}` : ''}</div></div>
     <div class="pos-change" id="sl-change">${saleChangeHtml()}</div>`
     : `<label class="field"><span>${esc(refLbl)}</span><input class="inp" id="sl-ref" value="${esc(s.payRef)}" data-in="saleField" data-f="payRef"></label>`}
-  <label class="chk"><input type="checkbox" id="sl-ivu" data-ch="saleField" data-f="ivuOn" ${s.ivuOn ? 'checked' : ''}> Cobrar IVU (${esc(fq(biz().ivu))}%)</label>`;
+  <label class="chk"><input type="checkbox" id="sl-ivu" data-ch="saleField" data-f="ivuOn" ${s.ivuOn ? 'checked' : ''}> Cobrar IVU (${esc(fq(ivuRates().st))}% estatal + ${esc(fq(ivuRates().mu))}% municipal)</label>`;
 }
 const refreshSaleTotals = () => {
   const s = S.sale; if (!s) return; const L = s.layer; const t = saleCalc(s);
@@ -3286,7 +3295,7 @@ function saleSummary(x) {
   const b = biz(); const r = isRet(x);
   return [`${b.name} — ${r ? `Devolución ${x.ref} (factura ${x.ofRef})` : `Factura ${x.ref}`}`, fmtDateTime(x.at), x.cust?.name ? `Cliente: ${x.cust.name}` : '',
     ...(x.lines || []).map(l => `• ${fq(l.qty)} × ${l.name}${l.serial ? ' (serie ' + l.serial + ')' : ''}: ${money(num(l.qty) * num(l.price))}`),
-    `Subtotal: ${money(Math.abs(saleGross(x)))}`, num(x.disc) ? `Descuento: −${money(x.disc)}` : '', `IVU: ${money(Math.abs(num(x.ivu)))}`,
+    `Subtotal: ${money(Math.abs(saleGross(x)))}`, num(x.disc) ? `Descuento: −${money(x.disc)}` : '', ...ivuRows(Math.abs(num(x.sub)), Math.abs(num(x.ivu)), x.ivuSt != null ? { ivuSt: Math.abs(x.ivuSt), ivuMu: Math.abs(x.ivuMu) } : null).map(([k, v]) => `${k}: ${money(v)}`),
     r ? `Total devuelto: ${money(-num(x.total))}` : `Total: ${money(x.total)}`, `${r ? 'Devuelto en' : 'Pago'}: ${x.pay?.method || ''}`,
     ...(r ? [] : (x.lines || []).filter(l => l.warranty).map(l => `Garantía ${l.name}: ${l.warranty}${l.wphone ? ' · Tel. ' + l.wphone : ''}`)), b.note || ''].filter(Boolean).join('\n');
 }
@@ -3304,7 +3313,7 @@ function openSaleDetail(sale, sigData, fresh) {
   <div class="sh-body">
     ${r ? `<div class="banner info">Devolución de la factura <b>${esc(sale.ofRef)}</b>${sale.reason ? ' · ' + esc(sale.reason) : ''}</div>` : ''}
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Artículo</th><th class="n">Cant.</th><th class="n">Precio</th><th class="n">Total</th></tr></thead><tbody>${(sale.lines || []).map((l, i) => `<tr><td class="nm"><b>${esc(l.name)}</b>${l.serial ? `<div class="small muted">Serie ${esc(l.serial)}</div>` : ''}${!r && l.warranty ? `<div class="small muted">Garantía: ${esc(l.warranty)}${l.wphone ? ' · Tel. ' + esc(l.wphone) : ''}</div>` : ''}${!r && num(sale.ret?.[i]) ? `<div class="small neg">Devuelto: ${fq(sale.ret[i])}</div>` : ''}${r ? `<div class="small muted">${l.back ? 'Volvió a ' + esc(locName(sale.from)) : 'No vuelve al inventario (defectuosa)'}</div>` : ''}</td><td class="n">${fq(l.qty)}</td><td class="n">${money(l.price)}</td><td class="n">${money(num(l.qty) * num(l.price))}</td></tr>`).join('')}</tbody></table></div>
-    <div class="totals" style="margin-left:auto"><span>Subtotal</span><span>${moneyS(saleGross(sale))}</span>${num(sale.disc) ? `<span>Descuento${sale.discPct ? ` (${esc(fq(sale.discPct))}%)` : ''}</span><span>−${money(sale.disc)}</span>` : ''}<span>IVU</span><span>${moneyS(sale.ivu)}</span><span class="grand">${r ? 'Devuelto' : 'Total'}</span><span class="grand">${money(Math.abs(num(sale.total)))}</span></div>
+    <div class="totals" style="margin-left:auto"><span>Subtotal</span><span>${moneyS(saleGross(sale))}</span>${num(sale.disc) ? `<span>Descuento${sale.discPct ? ` (${esc(fq(sale.discPct))}%)` : ''}</span><span>−${money(sale.disc)}</span>` : ''}${ivuRowsHtml(sale.sub, sale.ivu, sale, moneyS)}<span class="grand">${r ? 'Devuelto' : 'Total'}</span><span class="grand">${money(Math.abs(num(sale.total)))}</span></div>
     <p class="small">${r ? 'Devuelto en' : 'Pago'}: <b>${esc(sale.pay?.method || '')}</b>${sale.pay?.ref ? ' · Ref. ' + esc(sale.pay.ref) : ''}${sale.pay?.received ? ` · Recibido ${money(sale.pay.received)} · <b>Cambio ${money(sale.pay.change || 0)}</b>` : ''}</p>
     ${rets.length ? `<p class="small">Devoluciones: ${rets.map(x => `<b>${esc(x)}</b>`).join(', ')}</p>` : ''}
     <section class="card print-pref"><div class="row-wrap"><span class="small"><b>Imprimir en este equipo:</b></span><div class="chips" role="group" aria-label="Papel">${[['80mm', 'Recibo 80 mm'], ['carta', 'Carta']].map(([k, l]) => `<button class="chip" type="button" data-act="printPaper" data-p="${k}" aria-pressed="${paper === k}">${l}</button>`).join('')}</div>
@@ -3338,7 +3347,7 @@ function receiptDoc(x, sig, paper) {
   const ln = (x.lines || []).map(l => t80
     ? `<div class="l"><div>${fq(l.qty)} × ${esc(l.name)}</div><div class="r">${l.sku ? `<span class="sku">${esc(l.sku)}</span>` : '<span></span>'}<span>${money(num(l.qty) * num(l.price))}</span></div>${l.serial ? `<div class="sm">Serie ${esc(l.serial)}</div>` : ''}${r && !l.back ? '<div class="sm">Defectuosa: no vuelve al inventario</div>' : ''}</div>`
     : `<tr><td class="n">${fq(l.qty)}</td><td class="mono">${esc(l.sku || '')}</td><td>${esc(l.name)}${l.serial ? `<div class="sm">Serie ${esc(l.serial)}</div>` : ''}${r && !l.back ? '<div class="sm">Defectuosa: no vuelve al inventario</div>' : ''}</td><td class="n">${money(l.price)}</td><td class="n">${money(num(l.qty) * num(l.price))}</td></tr>`).join('');
-  const tot = [['Subtotal', money(Math.abs(saleGross(x)))], ...(num(x.disc) ? [[`Descuento${x.discPct ? ` (${fq(x.discPct)}%)` : ''}`, '−' + money(x.disc)]] : []), [`IVU (${fq(b.ivu)}%)`, money(Math.abs(num(x.ivu)))]];
+  const tot = [['Subtotal', money(Math.abs(saleGross(x)))], ...(num(x.disc) ? [[`Descuento${x.discPct ? ` (${fq(x.discPct)}%)` : ''}`, '−' + money(x.disc)]] : []), ...ivuRows(Math.abs(num(x.sub)), Math.abs(num(x.ivu)), x.ivuSt != null ? { ivuSt: Math.abs(x.ivuSt), ivuMu: Math.abs(x.ivuMu) } : null).map(([k, v]) => [k, money(v)])];
   const pay = `${r ? 'Devuelto en' : 'Pago'}: ${esc(x.pay?.method || '')}${x.pay?.ref ? ' · Ref. ' + esc(x.pay.ref) : ''}${x.pay?.received ? `<br>Recibido ${money(x.pay.received)} · Cambio ${money(x.pay.change || 0)}` : ''}`;
   const war = r ? [] : (x.lines || []).filter(l => l.warranty || l.wphone).map(l => `${esc(l.name)}${l.serial ? ' (serie ' + esc(l.serial) + ')' : ''}: ${esc(l.warranty || 'según el fabricante')}${l.wphone ? `. Servicio de garantía: ${esc(l.wphone)}${l.brand ? ' (' + esc(l.brand) + ')' : ''}` : ''}.`);
   const title = r ? 'DEVOLUCIÓN' : 'FACTURA';
@@ -3388,10 +3397,10 @@ const retMethodsHtml = () => PAY_METHODS.slice(0, 5).map(p => `<button class="pa
 function retCalc(R) {
   const sale = R.sale; const g = saleGross(sale); const factor = g ? num(sale.sub) / g : 1;
   const lines = (sale.lines || []).map((l, i) => ({ l, i, q: Math.min(retLeft(sale, i), r2(num(R.q[i]))) })).filter(x => x.q > 0);
-  const sub = r2(sum(lines, x => x.q * num(x.l.price) * factor)); const ivu = sale.ivuOn ? ivuOf(sub) : 0;
-  return { lines, factor, sub, ivu, total: r2(sub + ivu) };
+  const sub = r2(sum(lines, x => x.q * num(x.l.price) * factor)); const ip = sale.ivuOn ? ivuParts(sub) : { st: 0, mu: 0, total: 0 };
+  return { lines, factor, sub, ivu: ip.total, ivuSt: ip.st, ivuMu: ip.mu, total: r2(sub + ip.total) };
 }
-const retTotalsHtml = () => { const t = retCalc(S.ret); return `<div class="totals" style="margin-left:auto"><span>Subtotal</span><span>${money(t.sub)}</span><span>IVU</span><span>${money(t.ivu)}</span><span class="grand">A devolver</span><span class="grand">${money(t.total)}</span></div>`; };
+const retTotalsHtml = () => { const t = retCalc(S.ret); return `<div class="totals" style="margin-left:auto"><span>Subtotal</span><span>${money(t.sub)}</span>${ivuRowsHtml(t.sub, t.ivu, t)}<span class="grand">A devolver</span><span class="grand">${money(t.total)}</span></div>`; };
 INP.retQ = el => { const R = S.ret; if (!R) return; R.q[el.dataset.i] = el.value; $('#rt-tot').innerHTML = retTotalsHtml(); };
 CHG.retBad = el => { const R = S.ret; if (R) R.bad[el.dataset.i] = el.checked; };
 INP.retF = CHG.retF = el => { const R = S.ret; if (R) R[el.dataset.f] = el.value; };
@@ -3415,8 +3424,8 @@ ACT.retGo = async () => {
   }
   const rec = { id: rid, kind: 'dev', no, ref, at, by: S.profile, of: sale.id, ofRef: sale.ref, cust: { ...(sale.cust || {}) }, ph: sale.ph || '', from, ivuOn: !!sale.ivuOn, pay: { method: R.method }, reason: R.reason, note: (R.note || '').trim(),
     lines: done.map(x => ({ item: x.l.item, sku: x.l.sku || '', name: x.l.name, type: x.l.type || '', qty: x.q, price: r2(num(x.l.price) * t.factor), serial: x.l.serial || '', back: x.back })) };
-  const sub = r2(sum(rec.lines, l => l.qty * l.price)); const ivu = rec.ivuOn ? ivuOf(sub) : 0;
-  Object.assign(rec, { gross: -sub, disc: 0, sub: -sub, ivu: -ivu, total: -r2(sub + ivu) });
+  const sub = r2(sum(rec.lines, l => l.qty * l.price)); const ip = rec.ivuOn ? ivuParts(sub) : { st: 0, mu: 0, total: 0 };
+  Object.assign(rec, { gross: -sub, disc: 0, sub: -sub, ivu: -ip.total, ivuSt: -ip.st, ivuMu: -ip.mu, total: -r2(sub + ip.total) });
   if (done.length) {
     try {
       await logMoves(moves);
@@ -3468,6 +3477,8 @@ function vVentas() {
   const servBy = {}; serv.forEach(o => { const m = o.pay?.method || 'Otro'; servBy[m] = r2((servBy[m] || 0) + num(o.pay.amount)); });
   const methods = [...new Set([...Object.keys(byPay), ...Object.keys(servBy)])];
   const tp = sum(Object.values(byPay), x => x), ts = sum(Object.values(servBy), x => x);
+  const ivS = { st: 0, mu: 0 }; list.forEach(x => { const p = ivuSplit(x.sub, x.ivu, x); ivS.st = r2(ivS.st + p.st); ivS.mu = r2(ivS.mu + p.mu); });
+  serv.forEach(o => { const t = orderTotals(o); ivS.st = r2(ivS.st + t.ivuSt); ivS.mu = r2(ivS.mu + t.ivuMu); });
   return `
   <section class="sec-head"><h1>Ventas</h1><button class="btn primary" type="button" data-act="newSale">${IC.plus} Nueva venta</button></section>
   <div class="chips">${[[1, 'Hoy'], [7, '7 días'], [30, '30 días']].map(([n, l]) => `<button class="chip" type="button" data-act="salesDays" data-n="${n}" aria-pressed="${u.salesDays === n}">${l}</button>`).join('')}</div>
@@ -3475,6 +3486,7 @@ function vVentas() {
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Forma de pago</th><th class="n">Mostrador</th><th class="n">Servicios</th><th class="n">Total</th></tr></thead><tbody>
     ${methods.map(m => `<tr><td>${esc(m)}</td><td class="n">${money(byPay[m] || 0)}</td><td class="n">${money(servBy[m] || 0)}</td><td class="n"><b>${money((byPay[m] || 0) + (servBy[m] || 0))}</b></td></tr>`).join('') || '<tr><td colspan="4" class="muted">No hay cobros en este periodo.</td></tr>'}
     ${methods.length ? `<tr><td><b>Total</b></td><td class="n"><b>${money(tp)}</b></td><td class="n"><b>${money(ts)}</b></td><td class="n"><b>${money(tp + ts)}</b></td></tr>` : ''}</tbody></table></div>
+    <p class="small">IVU cobrado en el periodo (mostrador y servicios): <b>estatal ${money(ivS.st)}</b> · <b>municipal ${money(ivS.mu)}</b> · total ${money(ivS.st + ivS.mu)}</p>
     <p class="small muted">Compara estos totales con los tickets de la máquina de cobro. Los servicios cuentan cuando la orden se completa como cobrada.</p></section>
   <label class="search">${IC.search}<input class="inp" id="q-ventas" type="search" placeholder="Buscar por cliente, número de factura, artículo o serie" value="${esc(u.salesQ)}" data-in="ui" data-k="salesQ" autocomplete="off"></label>
   ${u.salesLoading ? '<p class="muted">Cargando ventas…</p>' : ''}
@@ -4035,7 +4047,7 @@ async function boot(hot) {
    Las funciones con el mismo nombre que en los otros archivos los
    reemplazan (en JavaScript gana la última declaración).
    ===================================================================== */
-const APP_VERSION = '2026.11.21-903c7e';
+const APP_VERSION = '2026.11.21-95c0ef';
 const FB_CONFIG = window.FB_CONFIG || null;
 const PACK = 24;   // el inventario va en 24 documentos (inv/b0…b23), unos 150 artículos en cada uno
 const W = {
