@@ -414,6 +414,23 @@ body.modal-open{overflow:hidden}
   .pos-change b,.pos-tot .grand{font-size:28px}
   .pos-go{min-height:54px}
 }
+/* Reportes */
+.rep-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.rep-tile{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:4px}
+.rep-val{font-family:var(--font-display);font-weight:800;font-size:24px;line-height:1.1;font-variant-numeric:tabular-nums}
+.rep-chart{position:relative;--c1:#1750C2;--c2:#C2410C}
+.rep-chart svg{width:100%;height:auto;display:block}
+.rep-chart .c1{fill:var(--c1)}.rep-chart .c2{fill:var(--c2)}
+.rep-chart .grid{stroke:var(--line);stroke-width:1}
+.rep-chart .ax{fill:var(--muted);font-size:12px;font-family:var(--font-body)}
+.rep-chart .hit{fill:transparent;cursor:default}
+.rep-chart .hit:hover{fill:var(--ink);fill-opacity:.05}
+.rep-legend{display:flex;gap:16px;font-size:13px;color:var(--ink);margin:4px 0 6px}
+.rep-legend span{display:inline-flex;align-items:center;gap:6px}
+.rep-legend .sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+.rep-legend .sw.c1{background:var(--c1)}.rep-legend .sw.c2{background:var(--c2)}
+.rep-tip{position:absolute;width:220px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:8px 10px;font-size:13px;pointer-events:none;z-index:3}
+@media (prefers-color-scheme:dark){.rep-chart{--c1:#3987e5;--c2:#d95926}}
 /* Versión web: entrada con cuenta y avisos de conexión */
 .conn.offline{background:var(--warn)}
 .who[hidden]{display:none}
@@ -945,7 +962,7 @@ function render() {
 const isWide = () => window.matchMedia('(min-width: 960px)').matches;
 const navItems = () => isOffice()
   ? (isWide()
-    ? [['inicio', 'Inicio', IC.home], ['llamadas', 'Llamadas', IC.list], ['rutas', 'Rutas', IC.route], ['ventas', 'Ventas', IC.cart], ['inventario', 'Inventario', IC.box], ['clientes', 'Clientes', IC.user], ['recordatorios', 'Recordatorios', IC.bell], ['ajustes', 'Ajustes', IC.gear]]
+    ? [['inicio', 'Inicio', IC.home], ['llamadas', 'Llamadas', IC.list], ['rutas', 'Rutas', IC.route], ['ventas', 'Ventas', IC.cart], ['inventario', 'Inventario', IC.box], ['reportes', 'Reportes', IC.chart], ['clientes', 'Clientes', IC.user], ['recordatorios', 'Recordatorios', IC.bell], ['ajustes', 'Ajustes', IC.gear]]
     : [['inicio', 'Inicio', IC.home], ['llamadas', 'Llamadas', IC.list], ['rutas', 'Rutas', IC.route], ['ventas', 'Ventas', IC.cart], ['inventario', 'Inventario', IC.box], ['mas', 'Más', IC.dots]])
   : [['ruta', 'Mi ruta', IC.route], ['disponibles', 'Disponibles', IC.inbox], ['guagua', 'Mi guagua', IC.truck], ['inventario', 'Buscar pieza', IC.search], ['ajustes', 'Ajustes', IC.gear]];
 const OFFICE_VIEWS = ['inicio', 'llamadas', 'rutas', 'ventas', 'inventario', 'clientes', 'recordatorios', 'ajustes', 'mas'];
@@ -3703,6 +3720,7 @@ function vMas() {
   const it = (href, act, t, s, ic) => href ? `<a class="irow" href="${href}" style="text-decoration:none"><div class="row-wrap">${ic}<div><div class="i-name">${t}</div><div class="i-meta">${s}</div></div></div><span class="muted">${IC.right}</span></a>` : `<button class="irow" type="button" data-act="${act}"><div class="row-wrap">${ic}<div><div class="i-name">${t}</div><div class="i-meta">${s}</div></div></div><span class="muted">${IC.right}</span></button>`;
   const due = dueReminders().length;
   return `<section><h1>Más</h1></section><section class="list">
+    ${it('#reportes', '', 'Reportes', 'Resultados por mes y por técnico, ganancia, IVU y cuentas por cobrar', IC.chart)}
     ${it('#clientes', '', 'Clientes', 'Busca clientes y mira su historial de servicios y compras', IC.user)}
     ${it('#recordatorios', '', 'Recordatorios' + (due ? ` <span class="pill st-pieza">${due} pronto</span>` : ''), 'Patentes, CRIM, suplidores y tareas del año', IC.bell)}
     ${it('', 'goAnalisis', 'Análisis de compras', 'Más vendidos, piezas lentas y qué pedir', IC.box)}
@@ -3925,6 +3943,243 @@ ACT.archOpen = async el => {
   toast('Ese servicio se anotó sin teléfono.', 'warn');
 };
 
+/* ---------- Reportes ----------
+   Resultados del periodo comparados con el anterior, por mes, por técnico, ganancia, IVU por mes (estatal y
+   municipal), cuentas por cobrar e historia del registro de servicios. Todo se puede bajar en Excel.
+   El dinero de servicios y mostrador se cuenta "cobrado con IVU" (como en la caja y en el registro); la
+   ganancia y el IVU se calculan sin IVU. El registro de servicios cuenta solo antes de que empezara la app. */
+IC.chart = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20h18"/><path d="M6 16v-5"/><path d="M11 16V6"/><path d="M16 16v-8"/><path d="M21 16v-3"/></svg>';
+VIEWS.reportes = vReportes; OFFICE_VIEWS.push('reportes');
+const REP_PRESETS = [['mes', 'Este mes'], ['mesant', 'Mes pasado'], ['anio', 'Este año'], ['anioant', 'Año pasado'], ['rango', 'Fechas']];
+const pad2 = n => String(n).padStart(2, '0');
+const lastDayOf = (y, m) => new Date(y, m, 0).getDate();
+const prevYm = (y, m) => m === 1 ? [y - 1, 12] : [y, m - 1];
+const dayOfIso = iso => iso ? ymd(new Date(iso)) : '';
+const daysSpan = (a, b) => Math.round((parseYmd(b) - parseYmd(a)) / 86400000) + 1;
+const monthLbl = mo => { const [y, m] = mo.split('-').map(Number); return `${MES[m - 1].slice(0, 3)} ${y}`; };
+const moneyK = n => { const v = Math.abs(num(n)); const s = v >= 1e6 ? (v / 1e6).toFixed(1).replace('.0', '') + 'M' : v >= 1e3 ? (v / 1e3).toFixed(v >= 1e4 ? 0 : 1).replace('.0', '') + 'k' : String(Math.round(v)); return (num(n) < 0 ? '−$' : '$') + s; };
+const pctChg = (a, b) => !b ? null : Math.round((a - b) / Math.abs(b) * 100);
+function repRange() {
+  const u = S.ui; const p = u.repP || 'mes'; const t = ymd(); const [y, m, d] = t.split('-').map(Number);
+  const ym = (yy, mm) => `${yy}-${pad2(mm)}`;
+  if (p === 'mesant') {
+    const [py, pm] = prevYm(y, m); const [qy, qm] = prevYm(py, pm);
+    return { p, from: ym(py, pm) + '-01', to: ym(py, pm) + '-' + pad2(lastDayOf(py, pm)), pf: ym(qy, qm) + '-01', pt: ym(qy, qm) + '-' + pad2(lastDayOf(qy, qm)), label: `${MES[pm - 1]} ${py}`, plabel: `${MES[qm - 1]} ${qy}` };
+  }
+  if (p === 'anio') return { p, from: `${y}-01-01`, to: t, pf: `${y - 1}-01-01`, pt: `${y - 1}-${pad2(m)}-${pad2(Math.min(d, lastDayOf(y - 1, m)))}`, label: `${y} hasta hoy`, plabel: `el mismo periodo de ${y - 1}` };
+  if (p === 'anioant') return { p, from: `${y - 1}-01-01`, to: `${y - 1}-12-31`, pf: `${y - 2}-01-01`, pt: `${y - 2}-12-31`, label: String(y - 1), plabel: String(y - 2) };
+  if (p === 'rango') {
+    let from = u.repFrom || ym(y, m) + '-01', to = u.repTo || t; if (from > to) [from, to] = [to, from];
+    const n = daysSpan(from, to); const pt = addDays(from, -1);
+    return { p, from, to, pf: addDays(pt, -(n - 1)), pt, label: `${fmtDateY(from)} al ${fmtDateY(to)}`, plabel: `los ${n} días anteriores` };
+  }
+  const [py, pm] = prevYm(y, m);
+  return { p: 'mes', from: ym(y, m) + '-01', to: t, pf: ym(py, pm) + '-01', pt: ym(py, pm) + '-' + pad2(Math.min(d, lastDayOf(py, pm))), label: `${MES[m - 1]} ${y} hasta hoy`, plabel: `el mismo periodo de ${MES[pm - 1]}` };
+}
+async function repLoad(R) {
+  const key = R.pf + '|' + R.to;
+  if (S.ui.rep?.key === key || S.ui.repLoading === key || !S.db) return;
+  S.ui.repLoading = key; schedule();
+  try {
+    const startIso = new Date(parseYmd(addDays(R.pf, -1))).toISOString();
+    const [os, ss, ms] = await Promise.all([
+      call(() => S.db.collection('orders').where('closedAt', '>=', startIso).get()),
+      call(() => S.db.collection('sales').where('day', '>=', R.pf).get()),
+      call(() => S.db.collection('moves').where('day', '>=', R.pf).get()),
+    ]);
+    if (archReady()) { try { await archAll(); } catch (e) { console.warn('registro', e); } }
+    S.ui.rep = { key, orders: os.docs.map(d => ({ id: d.id, ...d.data() })), sales: ss.docs.flatMap(d => Object.values(d.data().e || {})).filter(Boolean), moves: ms.docs.flatMap(d => Object.values(d.data().e || {})).filter(Boolean) };
+  } catch (e) { console.warn('reportes', e); toast(errMsg(e), 'err'); S.ui.rep = { key, err: true, orders: [], sales: [], moves: [] }; }
+  S.ui.repLoading = null; schedule();
+}
+// Servicios del registro anterior (solo antes de que empezara la app, para no contarlos dos veces).
+const appStartDay = () => IMP.st?.finishedAt ? dayOfIso(IMP.st.finishedAt) : '9999-12-31';
+function archInRange(a, b) {
+  const out = []; const stop = appStartDay();
+  for (const e of ARCH.docs.values()) for (const list of Object.values(e || {})) for (const r of list) { const x = archRec(r); if (x.date && x.date >= a && x.date <= b && x.date < stop) out.push(x); }
+  return out;
+}
+const archAmtNum = x => typeof x.amt === 'number' ? x.amt : 0;
+const saleParts = x => { const g = x.gross != null ? num(x.gross) : r2(num(x.sub) + num(x.disc)); const f = g ? num(x.sub) / g : 1; let eq = 0, pz = 0; for (const l of x.lines || []) { const v = num(l.qty) * num(l.price) * f * (isRet(x) ? -1 : 1); if (l.type === 'producto') eq += v; else pz += v; } return { eq: r2(eq), pz: r2(pz) }; };
+function repAgg(D, a, b) {
+  const inR = day => day >= a && day <= b;
+  const sv = D.orders.filter(o => o.status === 'completada' && inR(dayOfIso(o.closedAt))).map(o => ({ o, t: orderTotals(o), day: dayOfIso(o.closedAt), tech: o.tech ? techName(o.tech) : 'Sin técnico' }));
+  const sales = D.sales.filter(x => inR(dayOfIso(x.at)));
+  const arch = archInRange(a, b);
+  const A = { sv, sales, arch, svN: sv.length + arch.length, svTot: r2(sum(sv, x => x.t.total) + sum(arch, archAmtNum)), moTot: r2(sum(sales, x => num(x.total))), moN: sales.filter(x => !isRet(x)).length, ret: r2(-sum(sales.filter(isRet), x => num(x.total))), eq: 0, pz: 0, byMonth: {}, byTech: {}, ivu: {} };
+  for (const x of sales) { const p = saleParts(x); A.eq = r2(A.eq + p.eq); A.pz = r2(A.pz + p.pz); }
+  A.total = r2(A.svTot + A.moTot);
+  const mo = (k, f) => { const r = (A.byMonth[k] ||= { sv: 0, mo: 0, svN: 0 }); f(r); };
+  sv.forEach(x => mo(x.day.slice(0, 7), r => { r.sv = r2(r.sv + x.t.total); r.svN++; }));
+  arch.forEach(x => mo(x.date.slice(0, 7), r => { r.sv = r2(r.sv + archAmtNum(x)); r.svN++; }));
+  sales.forEach(x => mo(dayOfIso(x.at).slice(0, 7), r => { r.mo = r2(r.mo + num(x.total)); }));
+  // Por técnico: servicios, cobrado, minutos en el lugar y regresos (otra llamada del mismo teléfono en 30 días).
+  const allOrders = [...D.orders, ...S.orders.values()];
+  const tk = n => (A.byTech[n] ||= { n: 0, tot: 0, mins: [], back: 0, reg: 0 });
+  for (const x of sv) {
+    const r = tk(x.tech); r.n++; r.tot = r2(r.tot + x.t.total);
+    const ta = x.o.t?.arrived, td = x.o.t?.done; if (ta && td) { const mi = (new Date(td) - new Date(ta)) / 60000; if (mi > 0 && mi < 600) r.mins.push(mi); }
+    const ph = x.o.ph, end = new Date(new Date(x.o.closedAt).getTime() + 30 * 86400000).toISOString();
+    if (ph && allOrders.some(o => o.id !== x.o.id && o.ph === ph && o.created > x.o.closedAt && o.created <= end && o.status !== 'cancelada')) r.back++;
+  }
+  for (const x of arch) { const r = tk(x.tech || 'Sin técnico'); r.n++; r.tot = r2(r.tot + archAmtNum(x)); r.reg++; }
+  // IVU por mes (sin IVU la base): mostrador y servicios.
+  const iv = k => (A.ivu[k] ||= { tax: 0, ex: 0, st: 0, mu: 0 });
+  for (const x of sales) { const r = iv(dayOfIso(x.at).slice(0, 7)); const p = ivuSplit(x.sub, x.ivu, x); if (num(x.ivu)) r.tax = r2(r.tax + num(x.sub)); else r.ex = r2(r.ex + num(x.sub)); r.st = r2(r.st + p.st); r.mu = r2(r.mu + p.mu); }
+  for (const x of sv) { const r = iv(x.day.slice(0, 7)); if (x.t.ivu) r.tax = r2(r.tax + x.t.sub); else r.ex = r2(r.ex + x.t.sub); r.st = r2(r.st + x.t.ivuSt); r.mu = r2(r.mu + x.t.ivuMu); }
+  // Ganancia: piezas y equipos (precio menos costo, sin IVU) y la mano de obra y visitas de los servicios.
+  const G = {}; let noCost = new Set();
+  for (const m of D.moves) {
+    if (!['venta', 'uso', 'devol'].includes(m.k) || !m.item || !inR(dayOfIso(m.at))) continue;
+    const q = m.k === 'devol' ? -num(m.qty) : num(m.qty); const it = S.items.get(m.item);
+    const cat = it?.cat || (it?.type === 'producto' ? 'Equipos' : 'Piezas'); const g = (G[cat] ||= { rev: 0, cost: 0 });
+    g.rev = r2(g.rev + q * num(m.price)); g.cost = r2(g.cost + q * num(m.cost)); if (!num(m.cost) && num(m.price)) noCost.add(m.item);
+  }
+  const lab = r2(sum(sv, x => num(x.t.visit) + num(x.t.labor) - num(x.o.charges?.discount)));
+  if (lab) G['Mano de obra y visitas'] = { rev: lab, cost: 0 };
+  A.gan = G; A.noCost = noCost.size;
+  return A;
+}
+function repCompute() {
+  const R = repRange(); const D = S.ui.rep;
+  if (!D || D.key !== R.pf + '|' + R.to) return { R, loading: true };
+  return { R, D, cur: repAgg(D, R.from, R.to), prev: repAgg(D, R.pf, R.pt) };
+}
+const chgTxt = (a, b, plabel) => { const c = pctChg(a, b); return c == null ? '<span class="muted small">sin datos para comparar</span>' : `<span class="small">${c > 0 ? '▲' : c < 0 ? '▼' : '='} ${Math.abs(c)}% <span class="muted">vs ${esc(plabel)}</span></span>`; };
+const repTile = (lbl, val, sub) => `<div class="rep-tile"><span class="t-label">${lbl}</span><b class="rep-val">${val}</b>${sub || ''}</div>`;
+// Columnas apiladas por mes (servicios abajo, mostrador arriba), con su tabla debajo.
+function repChart(rows) {
+  if (rows.length < 2) return '';
+  const W = 720, H = 230, L = 56, B = 26, T = 10, Rr = 8; const max = Math.max(1, ...rows.map(r => Math.max(0, r.sv) + Math.max(0, r.mo)));
+  const raw = max / 4; const mag = Math.pow(10, Math.floor(Math.log10(raw))); const step = [1, 2, 2.5, 5, 10].map(k => k * mag).find(s => s >= raw) || raw; const top = Math.ceil(max / step) * step;
+  const y = v => T + (H - T - B) * (1 - v / top); const band = (W - L - Rr) / rows.length; const bw = Math.min(24, band * 0.6);
+  const ticks = []; for (let v = 0; v <= top + 1e-9; v += step) ticks.push(v);
+  const seg = (x, y0, y1, cls, round) => { const h = Math.max(0, y0 - y1); if (h < 0.5) return ''; const r = round ? Math.min(4, h, bw / 2) : 0; return `<path class="${cls}" d="M${x},${y0} V${y1 + r} ${r ? `Q${x},${y1} ${x + r},${y1}` : ''} H${x + bw - r} ${r ? `Q${x + bw},${y1} ${x + bw},${y1 + r}` : ''} V${y0} Z"/>`; };
+  const bars = rows.map((r, i) => {
+    const x = L + band * i + (band - bw) / 2; const s = Math.max(0, r.sv), m = Math.max(0, r.mo);
+    const ys = y(s), yt = y(s + m); const tip = `${r.label} · Servicios ${money(r.sv)} · Mostrador ${money(r.mo)} · Total ${money(r.sv + r.mo)}`;
+    return `<g>${seg(x, y(0), ys, 'c1', !m)}${m ? seg(x, ys - (s ? 2 : 0), yt, 'c2', true) : ''}<rect class="hit" x="${L + band * i}" y="${T}" width="${band}" height="${H - T - B}" data-tip="${esc(tip)}"><title>${esc(tip)}</title></rect>
+      ${rows.length <= 14 || i % 2 === 0 ? `<text class="ax" x="${L + band * i + band / 2}" y="${H - 8}" text-anchor="middle">${esc(r.short)}</text>` : ''}</g>`;
+  }).join('');
+  return `<div class="rep-chart"><div class="rep-legend"><span><i class="sw c1"></i>Servicios</span><span><i class="sw c2"></i>Mostrador</span></div>
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Servicios y mostrador por mes; los valores están en la tabla de abajo">${ticks.map(v => `<line class="grid" x1="${L}" x2="${W - Rr}" y1="${y(v)}" y2="${y(v)}"/><text class="ax" x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${moneyK(v)}</text>`).join('')}${bars}</svg><div class="rep-tip" hidden></div></div>`;
+}
+document.addEventListener('pointerover', e => { const t = e.target.closest?.('.rep-chart [data-tip]'); const box = e.target.closest?.('.rep-chart'); if (!box) return; const tip = box.querySelector('.rep-tip'); if (!t) { tip.hidden = true; return; } tip.textContent = t.dataset.tip; tip.hidden = false; const r = t.getBoundingClientRect(), b = box.getBoundingClientRect(); tip.style.left = Math.max(0, Math.min(b.width - 220, r.left - b.left + r.width / 2 - 110)) + 'px'; tip.style.top = '28px'; });
+document.addEventListener('pointerout', e => { const box = e.target.closest?.('.rep-chart'); if (box && !box.contains(e.relatedTarget)) box.querySelector('.rep-tip').hidden = true; });
+function repMonths(a, b) { const out = []; let [y, m] = a.slice(0, 7).split('-').map(Number); const [y2, m2] = b.slice(0, 7).split('-').map(Number); while (y < y2 || (y === y2 && m <= m2)) { out.push(`${y}-${pad2(m)}`); [y, m] = m === 12 ? [y + 1, 1] : [y, m + 1]; } return out; }
+function vReportes() {
+  const u = S.ui; const C = repCompute(); const R = C.R;
+  if (C.loading) repLoad(R);
+  const head = `<section class="sec-head"><h1>Reportes</h1>${C.cur ? `<button class="btn sm" type="button" data-act="repXlsx">${IC.file} Descargar Excel</button>` : ''}</section>
+  <div class="chips" role="group" aria-label="Periodo">${REP_PRESETS.map(([k, l]) => `<button class="chip" type="button" data-act="repP" data-p="${k}" aria-pressed="${R.p === k}">${l}</button>`).join('')}</div>
+  ${R.p === 'rango' ? `<div class="row-wrap"><label class="field"><span>Desde</span><input class="inp" type="date" id="rep-from" value="${esc(R.from)}" data-ch="repDate" data-k="repFrom"></label><label class="field"><span>Hasta</span><input class="inp" type="date" id="rep-to" value="${esc(R.to)}" data-ch="repDate" data-k="repTo"></label></div>` : ''}
+  <p class="small muted">${esc(R.label)} · comparado con ${esc(R.plabel)}</p>`;
+  if (C.loading) return head + '<p class="muted">Preparando los reportes…</p>';
+  const c = C.cur, p = C.prev;
+  const tickC = c.svN ? r2(c.svTot / c.svN) : 0, tickP = p.svN ? r2(p.svTot / p.svN) : 0;
+  const months = repMonths(R.from, R.to);
+  const rows = months.map(k => ({ k, label: monthLbl(k), short: MES[Number(k.slice(5)) - 1].slice(0, 3), sv: c.byMonth[k]?.sv || 0, mo: c.byMonth[k]?.mo || 0, svN: c.byMonth[k]?.svN || 0 }));
+  const techs = Object.entries(c.byTech).sort((a, b) => b[1].tot - a[1].tot);
+  const ganRows = Object.entries(c.gan).sort((a, b) => b[1].rev - a[1].rev); const gT = { rev: sum(ganRows, x => x[1].rev), cost: sum(ganRows, x => x[1].cost) };
+  const appMo = appStartDay().slice(0, 7);   // el IVU sale de lo registrado en la app: sin meses vacíos de antes
+  const ivuRowsM = months.filter(k => k >= appMo || c.ivu[k]).map(k => [k, c.ivu[k] || { tax: 0, ex: 0, st: 0, mu: 0 }]);
+  const ivT = ivuRowsM.reduce((t, [, r]) => ({ tax: t.tax + r.tax, ex: t.ex + r.ex, st: t.st + r.st, mu: t.mu + r.mu }), { tax: 0, ex: 0, st: 0, mu: 0 });
+  const archN = c.arch.length;
+  return head + `
+  <section class="tiles rep-tiles">
+    ${repTile('Total cobrado', money(c.total), chgTxt(c.total, p.total, R.plabel))}
+    ${repTile('Servicios', `${fmtN(c.svN)} · ${money(c.svTot)}`, chgTxt(c.svTot, p.svTot, R.plabel))}
+    ${repTile('Mostrador', `${fmtN(c.moN)} ventas · ${money(c.moTot)}`, chgTxt(c.moTot, p.moTot, R.plabel))}
+    ${repTile('Promedio por servicio', money(tickC), chgTxt(tickC, tickP, R.plabel))}
+  </section>
+  <p class="small muted">Con IVU, como se cobró. Mostrador: piezas ${money(c.pz)} · equipos ${money(c.eq)}${c.ret ? ` · devoluciones −${money(c.ret)}` : ''}.${archN ? ` Incluye ${fmtN(archN)} servicios del registro anterior a la app.` : ''}</p>
+  ${months.length > 1 ? `<section class="card"><h3>Por mes</h3>${repChart(rows)}
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Mes</th><th class="n">Servicios</th><th class="n">Cobrado en servicios</th><th class="n">Mostrador</th><th class="n">Total</th></tr></thead><tbody>${rows.map(r => `<tr><td>${esc(r.label)}</td><td class="n">${fmtN(r.svN)}</td><td class="n">${money(r.sv)}</td><td class="n">${money(r.mo)}</td><td class="n"><b>${money(r.sv + r.mo)}</b></td></tr>`).join('')}</tbody></table></div></section>` : ''}
+  <section class="card"><h3>Por técnico</h3>${techs.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Técnico</th><th class="n">Servicios</th><th class="n">Cobrado</th><th class="n">Promedio</th><th class="n">Tiempo en el lugar</th><th class="n">Regresos en 30 días</th></tr></thead><tbody>${techs.map(([n, r]) => { const mi = r.mins.length ? Math.round(sum(r.mins, x => x) / r.mins.length) : null; return `<tr><td><b>${esc(n)}</b>${r.reg ? `<div class="small muted">${fmtN(r.reg)} del registro</div>` : ''}</td><td class="n">${fmtN(r.n)}</td><td class="n">${money(r.tot)}</td><td class="n">${money(r.n ? r.tot / r.n : 0)}</td><td class="n">${mi == null ? '—' : mi >= 60 ? `${Math.floor(mi / 60)} h ${mi % 60} min` : `${mi} min`}</td><td class="n">${r.n - r.reg ? `${fmtN(r.back)} (${Math.round(r.back / (r.n - r.reg) * 100)}%)` : '—'}</td></tr>`; }).join('')}</tbody></table></div><p class="small muted">Tiempo en el lugar: de "en el lugar" a "completada". Regreso: otra llamada del mismo teléfono dentro de 30 días.</p>` : emptyMsg('No hay servicios completados en este periodo.')}</section>
+  <section class="card"><h3>Ganancia de piezas, equipos y servicios</h3>${ganRows.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Categoría</th><th class="n">Vendido (sin IVU)</th><th class="n">Costo</th><th class="n">Ganancia</th><th class="n">Margen</th></tr></thead><tbody>${ganRows.map(([k, g]) => `<tr><td>${esc(k)}</td><td class="n">${money(g.rev)}</td><td class="n">${money(g.cost)}</td><td class="n">${money(g.rev - g.cost)}</td><td class="n">${g.rev ? Math.round((g.rev - g.cost) / g.rev * 100) + '%' : '—'}</td></tr>`).join('')}<tr><td><b>Total</b></td><td class="n"><b>${money(gT.rev)}</b></td><td class="n"><b>${money(gT.cost)}</b></td><td class="n"><b>${money(gT.rev - gT.cost)}</b></td><td class="n"><b>${gT.rev ? Math.round((gT.rev - gT.cost) / gT.rev * 100) + '%' : '—'}</b></td></tr></tbody></table></div>${c.noCost ? `<p class="small muted">${fmtN(c.noCost)} piezas vendidas no tienen costo en el inventario: su ganancia sale más alta de lo real. Ponles el costo en Inventario.</p>` : ''}` : emptyMsg('Todavía no hay ventas ni piezas usadas en este periodo.')}</section>
+  <section class="card"><h3>IVU por mes (para la planilla de SURI)</h3>${ivuRowsM.length ? '' : '<p class="small muted">Este periodo es de antes de la app: el registro de servicios no separa el IVU.</p>'}<div class="tbl-wrap"${ivuRowsM.length ? '' : ' hidden'}><table class="tbl"><thead><tr><th>Mes</th><th class="n">Ventas tributables</th><th class="n">Exentas</th><th class="n">IVU estatal (${esc(fq(ivuRates().st))}%)</th><th class="n">IVU municipal (${esc(fq(ivuRates().mu))}%)</th><th class="n">IVU total</th></tr></thead><tbody>${ivuRowsM.map(([k, r]) => `<tr><td>${esc(monthLbl(k))}</td><td class="n">${money(r.tax)}</td><td class="n">${money(r.ex)}</td><td class="n">${money(r.st)}</td><td class="n">${money(r.mu)}</td><td class="n"><b>${money(r.st + r.mu)}</b></td></tr>`).join('')}${ivuRowsM.length > 1 ? `<tr><td><b>Total</b></td><td class="n"><b>${money(ivT.tax)}</b></td><td class="n"><b>${money(ivT.ex)}</b></td><td class="n"><b>${money(ivT.st)}</b></td><td class="n"><b>${money(ivT.mu)}</b></td><td class="n"><b>${money(ivT.st + ivT.mu)}</b></td></tr>` : ''}</tbody></table></div><p class="small muted">Mostrador (con sus devoluciones) y servicios completados, registrados en esta app. Sirve para cotejar con lo que reporta la máquina de cobro; no sustituye la planilla.</p></section>
+  <section class="card"><h3>Cuentas por cobrar</h3>${repDueHtml()}</section>
+  <section class="card"><h3>Historia del registro de servicios</h3>${repHistHtml()}</section>`;
+}
+ACT.repP = el => { S.ui.repP = el.dataset.p; schedule(); };
+CHG.repDate = el => { S.ui[el.dataset.k] = el.value; S.ui.repP = 'rango'; schedule(); };
+
+/* ---------- Cuentas por cobrar (no dependen del periodo) ---------- */
+function repDueHtml() {
+  const u = S.ui;
+  if (!u.repDue) return `<p class="small muted">Servicios completados sin cobrar, garantías por cobrar al fabricante y ventas a crédito del último año.</p><button class="btn sm" type="button" data-act="repDueLoad">Buscar cuentas por cobrar</button>`;
+  if (u.repDue.loading) return '<p class="muted">Buscando…</p>';
+  const L = u.repDue.list; if (!L.length) return '<p>No hay cuentas por cobrar. 👍</p>';
+  const groups = [['cliente', 'Clientes'], ['garantia', 'Garantías (cobrar al fabricante)']];
+  const today = ymd();
+  return groups.map(([g, t]) => { const G = L.filter(x => x.g === g).sort((a, b) => a.day.localeCompare(b.day)); if (!G.length) return ''; return `<h4>${t} · ${money(sum(G, x => x.amt))}</h4><div class="list">${G.map(x => { const dd = daysSpan(x.day, today) - 1; return `<div class="irow" style="cursor:default"><div><div class="i-name">${esc(x.who || 'Sin nombre')}</div><div class="i-meta">${esc(x.ref)} · ${esc(fmtDateY(x.day))} · <span class="${dd > 30 ? 'neg' : ''}">${dd} ${dd === 1 ? 'día' : 'días'}</span>${x.ph ? ' · ' + esc(fmtPhone(x.ph)) : ''}</div></div><div class="row-wrap"><b>${money(x.amt)}</b>${x.kind === 'o' ? `<button class="btn sm" type="button" data-act="repOpenOrder" data-id="${esc(x.id)}">Abrir</button>` : `<button class="btn sm" type="button" data-act="repSalePaid" data-id="${esc(x.id)}">Cobrada</button>`}</div></div>`; }).join('')}</div>`; }).join('') + '<p class="small muted">Las órdenes se marcan cobradas en su hoja (Estado del cobro). Una venta a crédito se marca con "Cobrada".</p>';
+}
+ACT.repDueLoad = async () => {
+  if (!S.db) return; S.ui.repDue = { loading: true, list: [] }; schedule();
+  try {
+    const since = addDays(ymd(), -365); const sinceIso = new Date(parseYmd(since)).toISOString();
+    const [os, ss] = await Promise.all([call(() => S.db.collection('orders').where('closedAt', '>=', sinceIso).get()), call(() => S.db.collection('sales').where('day', '>=', since).get())]);
+    const L = [];
+    for (const d of os.docs) { const o = { id: d.id, ...d.data() }; if (o.status !== 'completada') continue; const st = o.pay?.status || 'pendiente'; if (!['pendiente', 'credito', 'garantia'].includes(st)) continue; const owed = r2(orderTotals(o).total - (st === 'garantia' ? 0 : num(o.pay?.amount))); if (owed <= 0.009) continue; L.push({ kind: 'o', id: o.id, o, g: st === 'garantia' ? 'garantia' : 'cliente', who: o.cust?.name, ph: o.ph, ref: `Orden #${o.no}`, day: dayOfIso(o.closedAt), amt: owed }); }
+    for (const d of ss.docs) for (const x of Object.values(d.data().e || {})) if (x && !isRet(x) && x.pay?.method === 'Crédito / factura' && !x.paid) L.push({ kind: 's', id: x.id, x, g: 'cliente', who: x.cust?.name, ph: x.ph, ref: `Factura ${x.ref}`, day: dayOfIso(x.at), amt: num(x.total) });
+    S.ui.repDue = { list: L };
+  } catch (e) { console.warn(e); toast(errMsg(e), 'err'); S.ui.repDue = null; }
+  schedule();
+};
+ACT.repOpenOrder = el => { const x = S.ui.repDue?.list.find(y => y.id === el.dataset.id); if (x && !getOrder(x.id)) S.closed.set(x.id, x.o); openOrder(el.dataset.id); };
+ACT.repSalePaid = async el => {
+  const x = S.ui.repDue?.list.find(y => y.id === el.dataset.id); if (!x || !guard()) return;
+  const method = await choiceDlg('¿Cómo pagó?', PAY_METHODS.filter(m => m !== 'Crédito / factura' && m !== 'Garantía (sin cargo)'));
+  if (!method) return;
+  const ok = await run('Guardando…', () => appendMap('sales/' + x.day, 'e', { [x.id]: { paid: { at: nowIso(), method, by: S.profile } } }, { day: x.day }));
+  if (ok) { S.ui.repDue.list = S.ui.repDue.list.filter(y => y.id !== x.id); toast(`Factura ${x.x.ref} marcada cobrada (${method}).`, 'ok'); schedule(); }
+};
+// Escoger una opción de una lista (botones grandes).
+function choiceDlg(title, opts) {
+  return new Promise(res => {
+    let done = false; const fin = v => { if (done) return; done = true; res(v); };
+    pushModal(`<header class="sh-head"><h3>${esc(title)}</h3>${closeBtn}</header><div class="sh-body"><div class="pay-grid">${opts.map((o, i) => `<button class="pay-btn" type="button" data-act="choicePick" data-i="${i}">${esc(o)}</button>`).join('')}</div></div>`, { small: true, onClose: () => fin(null) });
+    S.choice = v => { fin(v); popModal(null); };
+    ACT.choicePick = el => { const f = S.choice; S.choice = null; if (f) f(opts[num(el.dataset.i)]); };
+  });
+}
+
+/* ---------- Historia del registro (2018–2026) ---------- */
+function repHistHtml() {
+  if (!archReady()) return '<p class="small muted">Todavía no se ha cargado el registro de servicios.</p>';
+  if (!ARCH.all) return '<p class="muted">Cargando el registro…</p>';
+  const H = repHist(); const years = Object.keys(H.y).sort().reverse();
+  return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Año</th><th class="n">Servicios</th><th class="n">Cobrado</th>${H.techs.map(t => `<th class="n">${esc(t)}</th>`).join('')}</tr></thead><tbody>${years.map(y => { const r = H.y[y]; return `<tr><td><b>${y}</b></td><td class="n">${fmtN(r.n)}</td><td class="n">${money(r.tot)}</td>${H.techs.map(t => `<td class="n">${fmtN(r.t[t] || 0)}</td>`).join('')}</tr>`; }).join('')}</tbody></table></div><p class="small muted">Del registro de servicios que se cargó (antes de la app). Los servicios "N/C" o sin monto cuentan pero no suman dinero.</p>`;
+}
+function repHist() {
+  const y = {}; const tc = {};
+  for (const e of ARCH.docs.values()) for (const list of Object.values(e || {})) for (const r of list) { const x = archRec(r); if (!x.date) continue; const k = x.date.slice(0, 4); const row = (y[k] ||= { n: 0, tot: 0, t: {} }); row.n++; row.tot = r2(row.tot + archAmtNum(x)); const t = x.tech || '—'; row.t[t] = (row.t[t] || 0) + 1; tc[t] = (tc[t] || 0) + 1; }
+  return { y, techs: Object.entries(tc).sort((a, b) => b[1] - a[1]).slice(0, 4).map(x => x[0]) };
+}
+
+/* ---------- Excel ---------- */
+ACT.repXlsx = async () => {
+  const C = repCompute(); if (!C.cur) return;
+  if (!S.dl) { toast('Esta vista no permite descargar archivos.', 'warn'); return; }
+  try {
+    busy('Preparando el Excel…');
+    const X = await loadXLSX(); const wb = X.utils.book_new(); const R = C.R, c = C.cur, p = C.prev;
+    const sheet = (name, aoa, widths) => { const ws = X.utils.aoa_to_sheet(aoa); if (widths) ws['!cols'] = widths.map(w => ({ wch: w })); X.utils.book_append_sheet(wb, ws, name); };
+    sheet('Resumen', [[`Reportes · ${biz().name || ''}`], [`Periodo: ${R.from} a ${R.to}`, `Comparado con: ${R.pf} a ${R.pt}`], [], ['', 'Periodo', 'Anterior'], ['Total cobrado (con IVU)', c.total, p.total], ['Servicios (cantidad)', c.svN, p.svN], ['Servicios (cobrado)', c.svTot, p.svTot], ['Ventas de mostrador (cantidad)', c.moN, p.moN], ['Mostrador (cobrado, neto de devoluciones)', c.moTot, p.moTot], ['Devoluciones', c.ret, p.ret], ['Mostrador: piezas (sin IVU)', c.pz, p.pz], ['Mostrador: equipos (sin IVU)', c.eq, p.eq]], [42, 16, 16]);
+    sheet('Por mes', [['Mes', 'Servicios', 'Cobrado en servicios', 'Mostrador', 'Total'], ...repMonths(R.from, R.to).map(k => { const r = c.byMonth[k] || { sv: 0, mo: 0, svN: 0 }; return [k, r.svN, r.sv, r.mo, r2(r.sv + r.mo)]; })], [10, 12, 20, 14, 14]);
+    sheet('Técnicos', [['Técnico', 'Servicios', 'Del registro', 'Cobrado', 'Promedio', 'Minutos promedio en el lugar', 'Regresos en 30 días'], ...Object.entries(c.byTech).map(([n, r]) => [n, r.n, r.reg, r.tot, r.n ? r2(r.tot / r.n) : 0, r.mins.length ? Math.round(sum(r.mins, x => x) / r.mins.length) : '', r.back])], [18, 10, 12, 14, 12, 26, 18]);
+    sheet('Servicios', [['Fecha', 'Orden', 'Cliente', 'Teléfono', 'Municipio', 'Técnico', 'Equipo', 'Marca', 'Subtotal', 'IVU estatal', 'IVU municipal', 'Total', 'Forma de pago', 'Estado del cobro'], ...c.sv.map(x => [x.day, x.o.no, x.o.cust?.name || '', x.o.ph || '', x.o.cust?.mun || '', x.tech, x.o.appl?.type || '', x.o.appl?.brand || '', x.t.sub, x.t.ivuSt, x.t.ivuMu, x.t.total, x.o.pay?.method || '', PAY_STATUS[x.o.pay?.status] || ''])], [11, 8, 24, 12, 12, 12, 14, 12, 10, 10, 12, 10, 16, 18]);
+    sheet('Mostrador', [['Fecha', 'Factura', 'Tipo', 'Cliente', 'Subtotal', 'Descuento', 'IVU estatal', 'IVU municipal', 'Total', 'Forma de pago'], ...c.sales.map(x => { const iv = ivuSplit(x.sub, x.ivu, x); return [dayOfIso(x.at), x.ref, isRet(x) ? `Devolución de ${x.ofRef}` : 'Venta', x.cust?.name || '', num(x.sub), num(x.disc), iv.st, iv.mu, num(x.total), x.pay?.method || '']; })], [11, 10, 20, 24, 10, 10, 10, 12, 10, 16]);
+    sheet('IVU', [['Mes', 'Ventas tributables', 'Exentas', 'IVU estatal', 'IVU municipal', 'IVU total'], ...repMonths(R.from, R.to).map(k => { const r = c.ivu[k] || { tax: 0, ex: 0, st: 0, mu: 0 }; return [k, r.tax, r.ex, r.st, r.mu, r2(r.st + r.mu)]; })], [10, 18, 12, 12, 14, 12]);
+    sheet('Ganancia', [['Categoría', 'Vendido (sin IVU)', 'Costo', 'Ganancia', 'Margen'], ...Object.entries(c.gan).map(([k, g]) => [k, g.rev, g.cost, r2(g.rev - g.cost), g.rev ? r2((g.rev - g.cost) / g.rev) : ''])], [26, 16, 12, 12, 10]);
+    if (S.ui.repDue?.list) sheet('Por cobrar', [['Tipo', 'Referencia', 'Cliente', 'Teléfono', 'Fecha', 'Días', 'Monto'], ...S.ui.repDue.list.map(x => [x.g === 'garantia' ? 'Garantía (fabricante)' : 'Cliente', x.ref, x.who || '', x.ph || '', x.day, daysSpan(x.day, ymd()) - 1, x.amt])], [20, 16, 24, 12, 11, 6, 10]);
+    if (archReady() && ARCH.all) { const H = repHist(); sheet('Historia', [['Año', 'Servicios', 'Cobrado', ...H.techs], ...Object.keys(H.y).sort().map(y => [y, H.y[y].n, H.y[y].tot, ...H.techs.map(t => H.y[y].t[t] || 0)])], [8, 10, 14, 8, 8, 8, 8]); }
+    const buf = X.write(wb, { bookType: 'xlsx', type: 'array' });
+    busy(null);
+    await saveFile(`reportes-${R.from}-a-${R.to}.xlsx`, new Blob([buf]));
+  } catch (e) { busy(null); console.warn(e); toast(e?.message || 'No se pudo preparar el Excel.', 'err'); }
+};
+
 /* =====================================================================
    Eventos, navegación y arranque
    ===================================================================== */
@@ -4055,7 +4310,7 @@ async function boot(hot) {
    Las funciones con el mismo nombre que en los otros archivos los
    reemplazan (en JavaScript gana la última declaración).
    ===================================================================== */
-const APP_VERSION = '2026.11.21-2aafec';
+const APP_VERSION = '2026.11.21-de54c2';
 const FB_CONFIG = window.FB_CONFIG || null;
 const PACK = 24;   // el inventario va en 24 documentos (inv/b0…b23), unos 150 artículos en cada uno
 const W = {
