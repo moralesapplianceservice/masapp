@@ -773,7 +773,7 @@ function closedQuery(db) { return db.collection('orders').where('open', '==', fa
 function subscribe() {
   const db = S.db;
   const onErr = what => e => { console.warn(what, e); if (e?.code === 'revoked') { S.conn = 'error'; toast('Se perdió el acceso a los datos.', 'err'); } else { S.conn = 'error'; } schedule(); };
-  loadTimer = setTimeout(() => { if (!allReady()) { S.conn = 'slow'; schedule(); } }, 10000);
+  loadTimer = setTimeout(() => { if (!allReady() && S.conn !== 'error') { S.conn = 'slow'; schedule(); } }, 10000);
   const fresh = m => { if (!m.fromCache && S.conn !== 'ok' && allReady()) { S.conn = 'ok'; clearTimeout(loadTimer); } };
   db.doc('config/main').onSnapshot(s => { S.cfg = s.exists ? s.data() : null; S.ready.cfg = true; autoProfile(); fresh(s.metadata); schedule(); }, onErr('config'));
   subscribeInv(db, fresh, onErr);
@@ -3640,14 +3640,14 @@ async function boot(hot) {
    Las funciones con el mismo nombre que en los otros archivos los
    reemplazan (en JavaScript gana la última declaración).
    ===================================================================== */
-const APP_VERSION = '2026.11.21-090c6f';
+const APP_VERSION = '2026.11.21-dc4cf7';
 const FB_CONFIG = window.FB_CONFIG || null;
 const PACK = 24;   // el inventario va en 24 documentos (inv/b0…b23), unos 150 artículos en cada uno
 const W = {
   phase: 'start', user: null, u: null, auth: null, fs: null,
   f: { mode: 'login', name: '', email: '', pass: '', pass2: '' }, msg: '', msgKind: '',
   users: null, usersUnsub: null, userUnsub: null, started: false, revoked: false, leaving: false,
-  sw: null, updReady: false, lastCheck: 0, impPlan: null, shareFile: null, pendingName: '',
+  sw: null, updReady: false, lastCheck: 0, impPlan: null, shareFile: null, pendingName: '', uJson: '',
 };
 const ROLE_LABEL = { pending: 'Esperando aprobación', office: 'Oficina', tech: 'Técnico', admin: 'Administrador', off: 'Sin acceso' };
 const isStaffRole = r => r === 'admin' || r === 'office' || r === 'tech';
@@ -4047,14 +4047,19 @@ async function onUser(u) {
   W.user = u; S.me = u.uid;
   if (W.phase !== 'app') { W.phase = 'loading'; render(); }
   let making = false;
-  W.userUnsub = W.fs.doc('users/' + u.uid).onSnapshot(async s => {
+  // Solo cuenta la ficha confirmada por el servidor: si la app abriera los datos con una ficha que el servidor
+  // todavía no tiene (la primera cuenta se crea aquí mismo), Firebase negaría el acceso y no cargaría nada.
+  W.userUnsub = W.fs.doc('users/' + u.uid).onSnapshot({ includeMetadataChanges: true }, async s => {
+    if (s.metadata.hasPendingWrites) return;
     if (!s.exists) {
       if (s.metadata.fromCache || making) return;   // espera la respuesta del servidor
       making = true;
       try { await claimAccount(u); } catch (e) { const x = fbErr(e); console.warn('cuenta', x); W.phase = 'error'; W.msg = x?.code === 'denied' ? 'Firebase no dejó crear tu ficha. Revisa que las reglas de Firestore estén publicadas (LEEME, paso 2).' : errMsg(x); render(); }
       return;
     }
-    W.u = s.data(); onRole();
+    const j = JSON.stringify(s.data());
+    if (j === W.uJson && W.phase === 'app') return;   // solo cambió el estado de la conexión
+    W.uJson = j; W.u = s.data(); onRole();
   }, e => { const x = fbErr(e); console.warn('ficha', x); W.phase = 'error'; W.msg = x?.code === 'denied' ? 'Firebase no dejó leer tu ficha. Revisa que las reglas de Firestore estén publicadas (LEEME, paso 2).' : errMsg(x); render(); });
 }
 /* La primera cuenta del negocio queda como dueña (administrador); las demás esperan aprobación. */
