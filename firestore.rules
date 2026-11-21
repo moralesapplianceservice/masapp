@@ -1,0 +1,38 @@
+rules_version = '2';
+// Reglas de Firestore de la app de servicio e inventario.
+// Se pegan en Firebase > Firestore Database > Reglas, y se toca Publicar.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function userPath() { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function ownerPath() { return /databases/$(database)/documents/owner/main; }
+    function role() { return signedIn() && exists(userPath()) ? get(userPath()).data.role : 'none'; }
+    function isAdmin() { return role() == 'admin'; }
+    function isStaff() { return role() in ['admin', 'office', 'tech']; }
+
+    // La primera cuenta queda como dueña (administrador), en la misma operación que crea su ficha.
+    match /owner/main {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && getAfter(userPath()).data.role == 'admin';
+    }
+
+    // Fichas de las cuentas: cada persona crea la suya esperando aprobación; solo un administrador las cambia.
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isStaff());
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.email == request.auth.token.email
+        && (request.resource.data.role == 'pending'
+            || (request.resource.data.role == 'admin'
+                && !exists(ownerPath())
+                && getAfter(ownerPath()).data.uid == request.auth.uid));
+      allow update, delete: if isAdmin();
+    }
+
+    // Todo lo del negocio: solo las cuentas aprobadas (oficina, técnicos y administradores).
+    match /{coll}/{rest=**} {
+      allow read, write: if !(coll in ['users', 'owner']) && isStaff();
+    }
+  }
+}

@@ -1,0 +1,121 @@
+MORALES APPLIANCE SERVICE: app de servicio, rutas e inventario (versión web)
+==========================================================================
+
+Qué hace
+- Llamadas de servicio: se registran en la oficina, se asignan a la ruta de cada técnico y el técnico
+  las trabaja desde su teléfono o tableta (en camino, en sitio, fichas de los equipos, piezas usadas,
+  estimado, firma del cliente y factura en PDF).
+- Inventario de piezas y equipos: búsqueda por número y por "cambios", rack, tablilla y otra localización,
+  existencias en el almacén y en cada guagua, recibo de mercancía, conteos, reabastecer guaguas y análisis.
+- Ventas de mostrador y de equipos (con garantía), clientes por teléfono con su historial y el registro de
+  servicios desde 2018, recordatorios y promociones.
+
+Esta carpeta NO tiene datos del negocio. El inventario, los clientes y las llamadas viven en Firebase,
+protegidos por cuentas. Los datos iniciales van aparte en "MAS datos iniciales.json" (no lo subas a GitHub).
+
+
+1. Las cuentas del negocio (una sola vez)
+-----------------------------------------
+- Un Gmail del negocio (por ejemplo, el que usa la oficina). Con ese Gmail se crea el proyecto de Firebase.
+  Añade a Abner como "Propietario" del proyecto para que pueda ayudar (Configuración del proyecto >
+  Usuarios y permisos).
+- Una cuenta de GitHub del negocio (o una organización) para publicar la app.
+
+
+2. Firebase: la base de datos (una sola vez)
+--------------------------------------------
+  a. Entra a https://console.firebase.google.com con el Gmail del negocio > Crear proyecto
+     (por ejemplo "mas-servicio"). Google Analytics no hace falta.
+  b. Authentication > Comenzar > Método de acceso > "Correo electrónico/contraseña" > Habilitar > Guardar.
+  c. Firestore Database > Crear base de datos. Si pregunta la edición, escoge Standard.
+     Ubicación: la que sugiere en Estados Unidos (por ejemplo nam5). Modo: producción.
+  d. En Firestore > Reglas, borra lo que hay, pega TODO el contenido del archivo firestore.rules
+     de esta carpeta y toca Publicar.
+  e. Configuración del proyecto (el engranaje) > General > Tus apps > el ícono web </>.
+     Ponle un nombre ("MAS web"), sin Firebase Hosting, y toca Registrar.
+     Copia el bloque firebaseConfig (apiKey, authDomain, projectId...) y envíaselo a Claude,
+     o pégalo tú en firebase-config.js en lugar de null:
+        window.FB_CONFIG = { apiKey: "...", authDomain: "...", projectId: "...", ... };
+     Esos datos no son secretos: lo que protege la información son las reglas y las cuentas aprobadas.
+  f. Cuando la app ya tenga su dirección (paso 3): Authentication > Configuración > Dominios autorizados >
+     Agregar dominio > NOMBRE.github.io
+
+
+3. GitHub Pages: la dirección de la app (una sola vez)
+------------------------------------------------------
+  a. En la cuenta u organización del negocio, crea un repositorio PÚBLICO (con la cuenta gratis,
+     Pages solo funciona en repositorios públicos). Por ejemplo "servicio".
+  b. Sube TODO el contenido de esta carpeta a la raíz del repositorio, incluidas las carpetas lib, fonts
+     e icons y el archivo .nojekyll. (O dale acceso a Claude y él la sube.)
+  c. Settings > Pages > Build and deployment > Source: "Deploy from a branch" > Branch: main, carpeta / (root) > Save.
+  d. En un par de minutos queda en https://NOMBRE.github.io/servicio/
+
+
+4. Primera cuenta y datos
+-------------------------
+  a. Abre la dirección de la app y toca "Crear una cuenta nueva". La PRIMERA cuenta que se crea queda como
+     administrador: que la cree Abner o el dueño.
+  b. Ajustes > "Cargar los datos del negocio" > escoge "MAS datos iniciales.json".
+     Entran el inventario (piezas y equipos), el registro de servicios, los datos del negocio, las tarifas
+     de visita y los técnicos. Tarda un par de minutos y necesita internet.
+  c. Revisa en Ajustes los técnicos (los nombres vienen como IMA y MMA), sus guaguas y sus teléfonos.
+
+
+5. Cuentas del equipo
+---------------------
+- Cada persona abre la dirección de la app, toca "Crear una cuenta nueva" y escribe su nombre,
+  su email y una contraseña. La cuenta queda "Esperando aprobación".
+- Un administrador la aprueba en Ajustes > Cuentas del equipo, escogiendo el acceso:
+    Oficina        ve y hace todo, menos aprobar cuentas
+    Técnico        su ruta, las llamadas disponibles, su guagua y buscar piezas (hay que escoger cuál técnico es)
+    Administrador  como la oficina, y además aprueba cuentas
+    Sin acceso     para alguien que ya no trabaja ahí
+- Si alguien olvida la contraseña: en la pantalla de entrar, "Olvidé mi contraseña" (llega un email).
+- Para borrar una cuenta por completo: Firebase > Authentication > Usuarios.
+
+
+6. Instalar en teléfonos, tabletas y computadoras
+-------------------------------------------------
+- iPhone o iPad: abre la dirección en Safari > Compartir > "Añadir a pantalla de inicio". Ábrela siempre desde
+  ese ícono.
+- Android: abre la dirección en Chrome > menú (tres puntos) > "Instalar app" o "Añadir a pantalla principal".
+- Computadora: Chrome o Edge > el ícono de instalar en la barra de dirección (o úsala como página normal).
+
+
+7. Sin internet
+---------------
+La app abre y funciona sin señal en un dispositivo donde ya se entró antes: rutas, órdenes, facturas en PDF
+e inventario. Lo que se registra se guarda en el dispositivo y se envía solo cuando vuelve la señal
+(arriba sale un punto amarillo y un aviso). Para crear cuentas, entrar por primera vez y cargar datos
+hace falta internet. Antes de cerrar sesión, deja que se envíen los cambios.
+
+
+8. Actualizaciones
+------------------
+Cuando Claude cambia la app, se suben los archivos nuevos al mismo repositorio. Cada dispositivo la baja
+sola al abrirla con internet y se recarga en cuanto no haya nada abierto. En Ajustes está
+"Buscar actualización" y el número de versión.
+
+
+9. Respaldos
+------------
+En el plan gratis de Firebase no hay respaldos automáticos. Una vez por semana:
+Ajustes > Datos > "Descargar respaldo completo", y guárdalo en Drive o en el email. Ese mismo archivo se puede
+volver a cargar en Ajustes si algún día hace falta.
+
+
+10. Costos
+----------
+El plan gratis (Spark) de Firestore incluye 1 GiB de datos, 50,000 lecturas, 20,000 escrituras y 20,000
+borrados al día; el conteo empieza de nuevo cerca de la medianoche de California. Para un negocio de este
+tamaño sobra. El uso se ve en Firebase > Firestore > Uso. Si un día se pasara, la app deja de guardar
+hasta el día siguiente; no se cobra nada a menos que alguien active un plan de pago.
+
+
+11. Diferencias con la versión de Claude
+----------------------------------------
+- Cada persona entra con su propia cuenta (antes se escogía el perfil en el dispositivo).
+- La redacción con IA de la factura no está en esta versión: el borrador automático sí.
+- Los datos están en Firebase, no en Claude. La versión de Claude puede seguir abierta como prueba,
+  pero lo que se registre allí no pasa solo a esta: para mudarlo, en la versión de Claude toca
+  Ajustes > Datos > "Descargar respaldo completo" y carga ese archivo aquí en Ajustes.
