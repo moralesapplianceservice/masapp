@@ -4047,7 +4047,7 @@ async function boot(hot) {
    Las funciones con el mismo nombre que en los otros archivos los
    reemplazan (en JavaScript gana la última declaración).
    ===================================================================== */
-const APP_VERSION = '2026.11.21-95c0ef';
+const APP_VERSION = '2026.11.21-344f68';
 const FB_CONFIG = window.FB_CONFIG || null;
 const PACK = 24;   // el inventario va en 24 documentos (inv/b0…b23), unos 150 artículos en cada uno
 const W = {
@@ -4272,7 +4272,7 @@ ACT.profile = () => {
   pushModal(`<header class="sh-head"><h3>Tu cuenta</h3>${closeBtn}</header><div class="sh-body">
     <div><div class="i-name">${esc(u.name || '')}</div><div class="i-meta">${esc(W.user?.email || '')} · ${esc(ROLE_LABEL[u.role] || '')}${u.role === 'tech' && myTech() ? ' · ' + esc(myTech().name) : ''}</div></div>
     ${rows.length > 1 ? `<h4>Ver la app como</h4><div class="list">${rows.map(([id, n, sub, c]) => `<button class="irow" type="button" data-act="setProfile" data-id="${esc(id)}"><div class="row-wrap"><span class="av" style="--c:${esc(c)}">${id === 'office' ? 'OF' : esc(initials(n))}</span><div><div class="i-name">${esc(n)}</div><div class="i-meta">${esc(sub)}</div></div></div><span class="muted">${S.profile === id ? IC.check : ''}</span></button>`).join('')}</div>` : ''}
-    <div class="row-wrap"><button class="btn sm" type="button" data-act="checkUpdate">Buscar actualización</button><button class="btn sm" type="button" data-act="signOut">Cerrar sesión</button><span class="small muted">Versión ${esc(APP_VERSION)}</span></div>
+    <div class="row-wrap"><button class="btn sm" type="button" data-act="pwChange">Cambiar contraseña</button><button class="btn sm" type="button" data-act="checkUpdate">Buscar actualización</button><button class="btn sm" type="button" data-act="signOut">Cerrar sesión</button><span class="small muted">Versión ${esc(APP_VERSION)}</span></div>
   </div>`, { small: true });
 };
 function deviceCard() {
@@ -4281,7 +4281,7 @@ function deviceCard() {
     <h3>Tu cuenta</h3>
     <p class="small"><b>${esc(u.name || '')}</b> · ${esc(W.user?.email || '')} · ${esc(ROLE_LABEL[u.role] || '')}${u.role === 'tech' && myTech() ? ' · ' + esc(myTech().name) : ''}</p>
     ${u.role !== 'tech' ? '<p class="small muted">Para ver lo que ve un técnico en su teléfono, toca tu nombre arriba y escoge "Ver la app como".</p>' : ''}
-    <div class="row-wrap"><button class="btn sm" type="button" data-act="checkUpdate">Buscar actualización</button><button class="btn sm" type="button" data-act="signOut">Cerrar sesión</button><span class="small muted">Versión ${esc(APP_VERSION)}</span></div>
+    <div class="row-wrap"><button class="btn sm" type="button" data-act="pwChange">Cambiar contraseña</button><button class="btn sm" type="button" data-act="checkUpdate">Buscar actualización</button><button class="btn sm" type="button" data-act="signOut">Cerrar sesión</button><span class="small muted">Versión ${esc(APP_VERSION)}</span></div>
   </section>${isOffice() ? usersCard() : ''}`;
 }
 
@@ -4296,7 +4296,8 @@ function usersCard() {
   const L = (W.users || []).slice().sort((a, b) => (a.role === 'pending' ? 0 : 1) - (b.role === 'pending' ? 0 : 1) || String(a.name || a.email).localeCompare(String(b.name || b.email)));
   return `<section class="card" id="cuentas">
     <h3>Cuentas del equipo</h3>
-    <p class="small muted">Cada persona entra con su email y su contraseña. Las cuentas nuevas esperan aquí hasta que las apruebes. Para que alguien entre, envíale la dirección de la app: <b>${esc(location.origin + location.pathname)}</b></p>
+    <p class="small muted">Crea aquí la cuenta de cada persona y envíale sus datos para entrar. También puede crearla ella misma desde la pantalla de entrar; en ese caso queda esperando tu aprobación. Dirección de la app: <b>${esc(appUrl())}</b></p>
+    <div><button class="btn primary sm" type="button" data-act="userNew">${IC.plus} Crear una cuenta</button></div>
     <div class="list">${W.users ? L.map(x => `<button class="irow" type="button" data-act="userOpen" data-id="${esc(x.id)}"><div><div class="i-name">${esc(x.name || x.email || 'Sin nombre')}${x.role === 'pending' ? ' <span class="pill new">Nueva</span>' : ''}</div><div class="i-meta">${esc(x.email || '')}</div></div><div class="i-meta">${esc(ROLE_LABEL[x.role] || x.role || '')}${x.role === 'tech' && x.tech ? ' · ' + esc(techName(x.tech)) : ''}</div></button>`).join('') : '<p class="small muted">Cargando…</p>'}</div>
   </section>`;
 }
@@ -4315,7 +4316,14 @@ ACT.userOpen = el => {
       <li><b>Sin acceso</b>: no puede ver los datos.</li>
     </ul>
   </div>
-  <footer class="sh-foot"><button class="btn" type="button" data-act="closeModal">Cancelar</button><button class="btn primary" type="button" data-act="userSave" data-id="${esc(x.id)}">Guardar</button></footer>`);
+  <footer class="sh-foot"><button class="btn" type="button" data-act="userReset" data-id="${esc(x.id)}">Enviarle enlace de contraseña</button><span class="spacer"></span><button class="btn" type="button" data-act="closeModal">Cancelar</button><button class="btn primary" type="button" data-act="userSave" data-id="${esc(x.id)}">Guardar</button></footer>`);
+};
+ACT.userReset = async el => {
+  const x = (W.users || []).find(y => y.id === el.dataset.id); if (!x?.email) return;
+  busy('Enviando…');
+  try { await W.auth.sendPasswordResetEmail(x.email); toast(`Le enviamos a ${x.email} un enlace para escoger una contraseña nueva.`, 'ok'); }
+  catch (e) { toast(authMsg(e), 'err'); }
+  finally { busy(null); }
 };
 CHG.userRole = el => { const f = document.getElementById('us-tech-f'); if (f) f.hidden = el.value !== 'tech'; };
 ACT.userSave = async el => {
@@ -4332,6 +4340,83 @@ ACT.userSave = async el => {
     if (Object.keys(patch.techs).length) await saveCfg(patch);
   });
   if (ok) { popModal(null); toast(x.role === 'pending' && isStaffRole(role) ? 'Cuenta aprobada' : 'Cuenta guardada', 'ok'); }
+};
+const appUrl = () => location.origin + location.pathname.replace(/index\.html$/, '');
+const tempPass = () => { const a = 'abcdefghjkmnpqrstuvwxyz'; return 'mas-' + (1000 + Math.floor(Math.random() * 9000)) + a[Math.floor(Math.random() * a.length)] + a[Math.floor(Math.random() * a.length)]; };
+ACT.userNew = () => {
+  pushModal(`<header class="sh-head"><h3>Crear una cuenta</h3>${closeBtn}</header>
+  <div class="sh-body">
+    <label class="field"><span>Nombre</span><input class="inp" id="nu-name" autocomplete="off"></label>
+    <label class="field"><span>Email</span><input class="inp" id="nu-email" type="email" inputmode="email" autocapitalize="off" spellcheck="false" autocomplete="off"></label>
+    <label class="field"><span>Contraseña para entrar la primera vez</span><input class="inp mono" id="nu-pass" value="${esc(tempPass())}" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+    <div class="grid2"><label class="field"><span>Acceso</span><select class="inp" id="nu-role" data-ch="nuRole">${['office', 'tech', 'admin'].map(r => `<option value="${r}">${ROLE_LABEL[r]}</option>`).join('')}</select></label>
+      <label class="field" id="nu-tech-f" hidden><span>¿Cuál técnico es?</span><select class="inp" id="nu-tech"><option value="">Escoge…</option>${techs().map(t => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</select></label></div>
+    <label class="chk"><input type="checkbox" id="nu-mail" checked> Enviarle también un email para que escoja su propia contraseña</label>
+  </div>
+  <footer class="sh-foot"><button class="btn" type="button" data-act="closeModal">Cancelar</button><button class="btn primary" type="button" data-act="userCreate">Crear cuenta</button></footer>`, { small: true });
+  setTimeout(() => document.getElementById('nu-name')?.focus(), 50);
+};
+CHG.nuRole = el => { const f = document.getElementById('nu-tech-f'); if (f) f.hidden = el.value !== 'tech'; };
+/* La cuenta nueva se crea con una conexión aparte (así tu sesión no cambia). Esa conexión crea su ficha como
+   cualquier cuenta nueva, esperando aprobación, y enseguida tu cuenta de administrador le da el acceso. */
+ACT.userCreate = async () => {
+  const name = $('#nu-name').value.trim(), email = $('#nu-email').value.trim().toLowerCase(), pass = $('#nu-pass').value.trim();
+  const role = $('#nu-role').value, tech = role === 'tech' ? $('#nu-tech').value : '', mail = $('#nu-mail').checked;
+  if (!name) { toast('Escribe el nombre.', 'warn'); return; }
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast('Escribe un email válido.', 'warn'); return; }
+  if (pass.length < 6) { toast('La contraseña necesita por lo menos 6 letras o números.', 'warn'); return; }
+  if (role === 'tech' && !tech) { toast('Escoge cuál técnico es.', 'warn'); return; }
+  if (!online()) { toast('Necesitas internet para crear cuentas.', 'warn'); return; }
+  busy('Creando la cuenta…');
+  let sec = null, uid = '';
+  try {
+    sec = firebase.initializeApp(FB_CONFIG, 'alta-' + Date.now());
+    const sa = sec.auth();
+    try { await sa.setPersistence(firebase.auth.Auth.Persistence.NONE); } catch { /* sin guardar sesión */ }
+    const cr = await sa.createUserWithEmailAndPassword(email, pass);
+    uid = cr.user.uid;
+    try { await cr.user.updateProfile({ displayName: name }); } catch { /* el nombre queda en la ficha */ }
+    await sec.firestore().doc('users/' + uid).set({ name, email: cr.user.email || email, created: nowIso(), role: 'pending' });
+    try { await sa.signOut(); } catch { /* nada */ }
+  } catch (e) {
+    busy(null); if (sec) sec.delete().catch(() => {});
+    toast(e?.code === 'auth/email-already-in-use' ? 'Ya hay una cuenta con ese email. Si es de alguien del equipo, búscala en la lista y dale acceso.' : String(e?.code || '').startsWith('auth/') ? authMsg(e) : errMsg(fbErr(e)), 'err');
+    return;
+  }
+  sec.delete().catch(() => {});
+  try {
+    await settle(W.fs.doc('users/' + uid).update({ role, tech: tech || null, upd: nowIso(), by: W.user.uid }), 15000);
+    if (tech) { const patch = { techs: { [tech]: { userId: uid } } }; for (const [tid, t] of Object.entries(cfg().techs || {})) if (t.userId === uid && tid !== tech) patch.techs[tid] = { userId: null }; await saveCfg(patch); }
+  } catch (e) { busy(null); toast('La cuenta se creó, pero falta darle el acceso: ábrela en la lista y guárdala. ' + errMsg(e), 'err'); return; }
+  let mailed = false;
+  if (mail) { try { await W.auth.sendPasswordResetEmail(email); mailed = true; } catch (e) { console.warn('email', e); } }
+  busy(null); popModal(null);
+  S.copyText = `${name}, ya tienes cuenta en la app de ${biz().name || 'la tienda'}.\nEntra en: ${appUrl()}\nEmail: ${email}\nContraseña: ${pass}\nDespués puedes cambiarla: toca tu nombre arriba → Cambiar contraseña.`;
+  pushModal(`<header class="sh-head"><h3>Cuenta creada</h3>${closeBtn}</header>
+  <div class="sh-body"><p>Envíale a <b>${esc(name)}</b> estos datos para entrar como <b>${esc(ROLE_LABEL[role])}</b>${tech ? ' (' + esc(techName(tech)) + ')' : ''}:</p>
+    <div class="card"><div class="small">Dirección</div><b>${esc(appUrl())}</b><div class="small">Email</div><b>${esc(email)}</b><div class="small">Contraseña</div><b class="mono">${esc(pass)}</b></div>
+    ${mailed ? `<p class="small muted">También le enviamos a ${esc(email)} un enlace para que escoja su propia contraseña.</p>` : ''}</div>
+  <footer class="sh-foot"><button class="btn" type="button" data-act="copyText">Copiar los datos</button><button class="btn primary" type="button" data-act="closeModal">Listo</button></footer>`, { small: true });
+};
+ACT.pwChange = () => {
+  pushModal(`<header class="sh-head"><h3>Cambiar contraseña</h3>${closeBtn}</header>
+  <form class="sh-body" data-submit="pwSave" novalidate>
+    <label class="field"><span>Contraseña actual</span><input class="inp" id="pw-cur" type="password" autocomplete="current-password"></label>
+    <label class="field"><span>Contraseña nueva</span><input class="inp" id="pw-new" type="password" autocomplete="new-password"></label>
+    <label class="field"><span>Repite la nueva</span><input class="inp" id="pw-new2" type="password" autocomplete="new-password"></label>
+    <button class="btn primary" type="submit">Cambiar contraseña</button>
+    <p class="small muted">Si no recuerdas la actual, cierra sesión y toca "Olvidé mi contraseña".</p>
+  </form>`, { small: true });
+  setTimeout(() => document.getElementById('pw-cur')?.focus(), 50);
+};
+ACT.pwSave = async () => {
+  const cur = $('#pw-cur').value, n1 = $('#pw-new').value, n2 = $('#pw-new2').value; const u = W.auth?.currentUser;
+  if (!u) return;
+  if (n1.length < 6) { toast('La contraseña nueva necesita por lo menos 6 letras o números.', 'warn'); return; }
+  if (n1 !== n2) { toast('Las dos contraseñas nuevas no son iguales.', 'warn'); return; }
+  busy('Cambiando la contraseña…');
+  try { await u.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(u.email, cur)); await u.updatePassword(n1); busy(null); popModal(null); toast('Contraseña cambiada', 'ok'); }
+  catch (e) { busy(null); toast(e?.code === 'auth/invalid-credential' || e?.code === 'auth/wrong-password' ? 'La contraseña actual no es correcta.' : authMsg(e), 'err'); }
 };
 ACT.goUsers = () => { if (location.hash !== '#ajustes') location.hash = '#ajustes'; setTimeout(() => document.getElementById('cuentas')?.scrollIntoView({ block: 'start' }), 120); };
 
