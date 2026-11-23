@@ -500,7 +500,7 @@ const WARRANTY = { no: 'Sin garantía', fabrica: 'Garantía de fábrica', tienda
 const PAY_METHODS = ['Efectivo', 'ATH Móvil', 'Tarjeta', 'Cheque', 'Crédito / factura', 'Garantía (sin cargo)'];
 const PAY_STATUS = { pendiente: 'Pendiente de cobro', cobrado: 'Cobrado', garantia: 'Garantía (cobrar al fabricante)', credito: 'A crédito' };
 const ITEM_TYPES = { pieza: 'Pieza', producto: 'Producto', servicio: 'Servicio' };
-const MOVE_KINDS = { entrada: 'Entrada', transfer: 'Transferencia', uso: 'Usada en servicio', devol: 'Devuelta', venta: 'Venta', ajuste: 'Ajuste' };
+const MOVE_KINDS = { entrada: 'Entrada', transfer: 'Transferencia', uso: 'Usada en servicio', devol: 'Devuelta', venta: 'Venta', ajuste: 'Ajuste', anula: 'Venta anulada' };
 const WINDOWS = { '': 'Cualquier hora', AM: 'Mañana (AM)', PM: 'Tarde (PM)' };
 const TECH_COLORS = ['#1750C2', '#C2410C', '#0F766E', '#7C3AED', '#B91C1C', '#4D7C0F', '#0E7490', '#A16207'];
 const ADJ_REASONS = ['Corrección', 'Conteo físico', 'Dañado', 'Pérdida', 'Uso interno', 'Devolución a suplidor'];
@@ -794,7 +794,7 @@ async function logMoves(list, docId) {
     for (const [day, e] of Object.entries(byDay)) await appendMap('moves/' + day, 'e', e, { day });
   }
   const st = {};
-  for (const m of list) if (['venta', 'uso', 'devol'].includes(m.k) && m.item) { const mo = ymd(new Date(m.at)).slice(0, 7); const q = m.k === 'devol' ? -num(m.qty) : num(m.qty); (st[mo] ||= {})[m.id] = [m.item, q, r2(q * num(m.price)), r2(q * num(m.cost))]; }
+  for (const m of list) if (['venta', 'uso', 'devol', 'anula'].includes(m.k) && m.item) { const mo = ymd(new Date(m.at)).slice(0, 7); const q = m.k === 'devol' || m.k === 'anula' ? -num(m.qty) : num(m.qty); (st[mo] ||= {})[m.id] = [m.item, q, r2(q * num(m.price)), r2(q * num(m.cost))]; }
   for (const [mo, e] of Object.entries(st)) { try { await appendMap('stats/' + mo, 'e', e, { m: mo }); } catch (err) { console.warn('stats', err); } }
 }
 // Un número de 7 dígitos es de Puerto Rico con 787; los demás se dejan con el código de área que traen.
@@ -3021,7 +3021,7 @@ ACT.routePdf = el => pdfOut('Preparando la hoja de ruta…', `Ruta-${firstName(t
 ACT.routePdfAll = el => { const day = el.dataset.day; const ids = techs().filter(t => routeOf(t.id, day).length).map(t => t.id); if (!ids.length) { toast('No hay paradas asignadas ese día.', 'warn'); return; } pdfOut('Preparando las hojas de ruta…', `Rutas-${day}.pdf`, () => routePdf(ids, day)); };
 
 /* ---------- Ventas de mostrador ---------- */
-const salesTodayList = () => Object.values(S.salesDocs).flatMap(d => Object.values(d?.e || {})).filter(x => x && x.at && ymd(new Date(x.at)) === ymd());
+const salesTodayList = () => Object.values(S.salesDocs).flatMap(d => Object.values(d?.e || {})).filter(x => x && x.at && !x.void && ymd(new Date(x.at)) === ymd());
 function sigPad(cv) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const w = Math.max(280, cv.getBoundingClientRect().width || 320), h = 150;
@@ -3307,6 +3307,9 @@ ACT.saleSubmit = async () => {
   openSaleDetail(sale, sigData, true);
 };
 const isRet = x => x?.kind === 'dev';
+const isVoid = x => !!x?.void;
+// Quién puede anular una venta (en la versión web, solo un administrador).
+function canVoid() { return isOffice(); }
 const saleGross = x => x.gross != null ? x.gross : r2(num(x.sub) + num(x.disc));
 function saleSummary(x) {
   const b = biz(); const r = isRet(x);
@@ -3323,11 +3326,13 @@ const PRINT_AUTO = () => lsGet('printAuto') === '1';
 function openSaleDetail(sale, sigData, fresh) {
   S.saleView = { sale, sig: sigData || null }; S.copyText = saleSummary(sale);
   const wa = waUrl(sale.cust?.phone, S.copyText); const r = isRet(sale);
-  const canRet = !r && (sale.lines || []).some((l, i) => retLeft(sale, i) > 0);
+  const vd = isVoid(sale); const canRet = !r && !vd && (sale.lines || []).some((l, i) => retLeft(sale, i) > 0);
+  const canV = !r && !vd && canVoid() && !Object.keys(sale.rets || {}).length;
   const rets = Object.values(sale.rets || {});
   const paper = PRINT_PAPER();
   pushModal(`<header class="sh-head"><span class="stub">${esc(sale.no)}</span><div class="grow"><h3>${r ? `Devolución ${esc(sale.ref)}` : `Factura ${esc(sale.ref)}`}</h3><div class="small muted">${esc(fmtDateTime(sale.at))}${sale.cust?.name ? ' · ' + esc(sale.cust.name) : ''} · ${esc(techName(sale.by))}</div></div>${closeBtn}</header>
   <div class="sh-body">
+    ${vd ? `<div class="banner warn"><b>Venta anulada</b> el ${esc(fmtDateTime(sale.void.at))}${sale.void.by ? ' por ' + esc(techName(sale.void.by)) : ''} · ${esc(sale.void.reason || '')}. No cuenta en las ventas, el cuadre, el IVU ni los reportes, y lo vendido volvió al inventario.</div>` : ''}
     ${r ? `<div class="banner info">Devolución de la factura <b>${esc(sale.ofRef)}</b>${sale.reason ? ' · ' + esc(sale.reason) : ''}</div>` : ''}
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Artículo</th><th class="n">Cant.</th><th class="n">Precio</th><th class="n">Total</th></tr></thead><tbody>${(sale.lines || []).map((l, i) => `<tr><td class="nm"><b>${esc(l.name)}</b>${l.serial ? `<div class="small muted">Serie ${esc(l.serial)}</div>` : ''}${!r && l.warranty ? `<div class="small muted">Garantía: ${esc(l.warranty)}${l.wphone ? ' · Tel. ' + esc(l.wphone) : ''}</div>` : ''}${!r && num(sale.ret?.[i]) ? `<div class="small neg">Devuelto: ${fq(sale.ret[i])}</div>` : ''}${r ? `<div class="small muted">${l.back ? 'Volvió a ' + esc(locName(sale.from)) : 'No vuelve al inventario (defectuosa)'}</div>` : ''}</td><td class="n">${fq(l.qty)}</td><td class="n">${money(l.price)}</td><td class="n">${money(num(l.qty) * num(l.price))}</td></tr>`).join('')}</tbody></table></div>
     <div class="totals" style="margin-left:auto"><span>Subtotal</span><span>${moneyS(saleGross(sale))}</span>${num(sale.disc) ? `<span>Descuento${sale.discPct ? ` (${esc(fq(sale.discPct))}%)` : ''}</span><span>−${money(sale.disc)}</span>` : ''}${ivuRowsHtml(sale.sub, sale.ivu, sale, moneyS)}<span class="grand">${r ? 'Devuelto' : 'Total'}</span><span class="grand">${money(Math.abs(num(sale.total)))}</span></div>
@@ -3337,7 +3342,7 @@ function openSaleDetail(sale, sigData, fresh) {
       <label class="chk small"><input type="checkbox" data-ch="printAuto" ${PRINT_AUTO() ? 'checked' : ''}> Imprimir solo al cobrar</label></div></section>
     <p class="small muted">Esta factura es interna: no sustituye lo que reporten del IVU en su sistema de cobro.</p>
   </div>
-  <footer class="sh-foot"><button class="btn" type="button" data-act="copyText">Copiar</button>${wa ? `<a class="btn" href="${esc(wa)}" target="_blank" rel="noopener">${IC.chat} WhatsApp</a>` : ''}<button class="btn" type="button" data-act="salePdf">${IC.file} PDF</button>${canRet ? `<button class="btn" type="button" data-act="retOpen">Devolver</button>` : ''}<button class="btn" type="button" data-act="salePrint">Imprimir</button>${r ? '' : `<button class="btn primary" type="button" data-act="saleNext">${IC.plus} Nueva venta</button>`}</footer>`, { onClose: () => { S.saleView = null; } });
+  <footer class="sh-foot"><button class="btn" type="button" data-act="copyText">Copiar</button>${wa ? `<a class="btn" href="${esc(wa)}" target="_blank" rel="noopener">${IC.chat} WhatsApp</a>` : ''}<button class="btn" type="button" data-act="salePdf">${IC.file} PDF</button>${canRet ? `<button class="btn" type="button" data-act="retOpen">Devolver</button>` : ''}${canV ? `<button class="btn" type="button" data-act="saleVoid">Anular venta</button>` : ''}<button class="btn" type="button" data-act="salePrint">Imprimir</button>${r ? '' : `<button class="btn primary" type="button" data-act="saleNext">${IC.plus} Nueva venta</button>`}</footer>`, { onClose: () => { S.saleView = null; } });
   if (fresh && PRINT_AUTO()) setTimeout(() => ACT.salePrint(), 350);
 }
 ACT.printPaper = el => { lsSet('printPaper', el.dataset.p); el.parentElement.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed', String(c === el))); };
@@ -3393,6 +3398,37 @@ function receiptDoc(x, sig, paper) {
       ${b.note ? `<div class="sec sm">${esc(b.note)}</div>` : ''}`;
   return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${title} ${esc(x.ref)}</title><style>${css}</style></head><body>${body}</body></html>`;
 }
+
+/* ---------- Anular una venta (de prueba o mal registrada) ----------
+   Queda en la lista como anulada, pero deja de contar en las ventas, el cuadre, el IVU y los reportes;
+   lo vendido vuelve al inventario y el análisis lo resta. */
+ACT.saleVoid = async () => {
+  const v = S.saleView; if (!v || !guard()) return; const sale = v.sale;
+  if (!canVoid()) { toast('Solo un administrador puede anular ventas.', 'warn'); return; }
+  if (Object.keys(sale.rets || {}).length) { toast('Esta venta ya tiene devoluciones: no se puede anular.', 'warn'); return; }
+  const reason = await choiceDlg(`¿Por qué se anula la venta ${sale.ref}?`, ['Venta de prueba', 'Error al registrar', 'El cliente no se llevó nada', 'Otro']);
+  if (!reason) return;
+  const from = sale.from || 'alm';
+  if (!(await confirmDlg('Anular venta', `<p>La venta <b>${esc(sale.ref)}</b> de <b>${money(sale.total)}</b> deja de contar en las ventas, el cuadre, el IVU y los reportes.</p><p>Lo vendido vuelve a ${esc(locName(from))}.</p><p class="small muted">Queda en la lista marcada como anulada, con el motivo: ${esc(reason)}.</p>`, 'Anular venta'))) return;
+  busy('Anulando la venta…');
+  const at = nowIso(); const g = saleGross(sale); const factor = g ? num(sale.sub) / g : 1; const moves = [];
+  try {
+    for (const [i, l] of (sale.lines || []).entries()) {
+      const it = l.item && S.items.get(l.item); const q = retLeft(sale, i); if (!it || q <= 0) continue;
+      const mid = `anula-${sale.id}-${i}`;
+      if (isStocked(it)) await applyStock(it.id, { [from]: q }, mid);
+      moves.push(mkMove('anula', it, q, { id: mid, to: isStocked(it) ? from : null, ref: sale.ref, price: r2(num(l.price) * factor), note: `Venta ${sale.ref} anulada: ${reason}` }));
+    }
+    await logMoves(moves);
+    const day = ymd(new Date(sale.at));
+    await appendMap('sales/' + day, 'e', { [sale.id]: { void: { at, by: S.profile, reason } } }, { day });
+    if (String(sale.ph || '').length >= 7) { try { await appendMap('customers/' + sale.ph, 'hist', { [sale.id]: { void: true } }); } catch (e) { console.warn('historial', e); } }
+  } catch (e) { busy(null); toast(`No se pudo anular del todo: ${errMsg(e)} Intenta otra vez; lo que ya volvió al inventario no se repite.`, 'err'); return; }
+  sale.void = { at, by: S.profile, reason };
+  busy(null); popModal(null);
+  toast(`Venta ${sale.ref} anulada`, 'ok');
+  openSaleDetail(sale);
+};
 
 /* ---------- Devoluciones ---------- */
 ACT.retOpen = () => {
@@ -3489,12 +3525,13 @@ function vVentas() {
   let list = salesList().filter(x => ymd(new Date(x.at)) >= from);
   const q = norm(u.salesQ).replace(/#/g, '').trim();
   if (q) list = list.filter(x => norm([x.ref, x.cust?.name, x.cust?.phone, ...(x.lines || []).map(l => `${l.name} ${l.sku} ${l.serial}`)].join(' ')).includes(q));
-  const byPay = {}; list.forEach(x => { const m = x.pay?.method || 'Otro'; byPay[m] = r2((byPay[m] || 0) + num(x.total)); });
+  const liveL = list.filter(x => !isVoid(x));   // las anuladas se ven en la lista pero no cuentan
+  const byPay = {}; liveL.forEach(x => { const m = x.pay?.method || 'Otro'; byPay[m] = r2((byPay[m] || 0) + num(x.total)); });
   const serv = allOrders().filter(o => o.status === 'completada' && o.pay?.status === 'cobrado' && o.t?.done && ymd(new Date(o.t.done)) >= from);
   const servBy = {}; serv.forEach(o => { const m = o.pay?.method || 'Otro'; servBy[m] = r2((servBy[m] || 0) + num(o.pay.amount)); });
   const methods = [...new Set([...Object.keys(byPay), ...Object.keys(servBy)])];
   const tp = sum(Object.values(byPay), x => x), ts = sum(Object.values(servBy), x => x);
-  const ivS = { st: 0, mu: 0 }; list.forEach(x => { const p = ivuSplit(x.sub, x.ivu, x); ivS.st = r2(ivS.st + p.st); ivS.mu = r2(ivS.mu + p.mu); });
+  const ivS = { st: 0, mu: 0 }; liveL.forEach(x => { const p = ivuSplit(x.sub, x.ivu, x); ivS.st = r2(ivS.st + p.st); ivS.mu = r2(ivS.mu + p.mu); });
   serv.forEach(o => { const t = orderTotals(o); ivS.st = r2(ivS.st + t.ivuSt); ivS.mu = r2(ivS.mu + t.ivuMu); });
   return `
   <section class="sec-head"><h1>Ventas</h1><button class="btn primary" type="button" data-act="newSale">${IC.plus} Nueva venta</button></section>
@@ -3507,7 +3544,7 @@ function vVentas() {
     <p class="small muted">Compara estos totales con los tickets de la máquina de cobro. Los servicios cuentan cuando la orden se completa como cobrada.</p></section>
   <label class="search">${IC.search}<input class="inp" id="q-ventas" type="search" placeholder="Buscar por cliente, número de factura, artículo o serie" value="${esc(u.salesQ)}" data-in="ui" data-k="salesQ" autocomplete="off"></label>
   ${u.salesLoading ? '<p class="muted">Cargando ventas…</p>' : ''}
-  <section class="list">${list.slice(0, 200).map(x => `<button class="ocard" type="button" data-act="saleOpen" data-id="${esc(x.id)}"><span class="stub">${esc(x.no)}</span><span class="oc-main"><span class="oc-title">${isRet(x) ? `Devolución de ${esc(x.ofRef)}${x.cust?.name ? ' · ' + esc(x.cust.name) : ''}` : esc(x.cust?.name || 'Venta de mostrador')}</span><span class="oc-sub">${esc(trunc((x.lines || []).map(l => `${fq(l.qty)} ${l.name}`).join(', '), 110))}</span><span class="oc-meta"><span>${esc(fmtDateTime(x.at))}</span><span>${esc(x.pay?.method || '')}</span></span></span><span class="i-price${isRet(x) ? ' neg' : ''}">${moneyS(x.total)}</span></button>`).join('') || emptyMsg('No hay ventas en este periodo.')}</section>`;
+  <section class="list">${list.slice(0, 200).map(x => `<button class="ocard" type="button" data-act="saleOpen" data-id="${esc(x.id)}"><span class="stub">${esc(x.no)}</span><span class="oc-main"><span class="oc-title">${isVoid(x) ? '<span class="pill">Anulada</span> ' : ''}${isRet(x) ? `Devolución de ${esc(x.ofRef)}${x.cust?.name ? ' · ' + esc(x.cust.name) : ''}` : esc(x.cust?.name || 'Venta de mostrador')}</span><span class="oc-sub">${esc(trunc((x.lines || []).map(l => `${fq(l.qty)} ${l.name}`).join(', '), 110))}</span><span class="oc-meta"><span>${esc(fmtDateTime(x.at))}</span><span>${esc(x.pay?.method || '')}</span></span></span><span class="i-price${isRet(x) ? ' neg' : ''}${isVoid(x) ? ' muted' : ''}">${isVoid(x) ? `<s>${moneyS(x.total)}</s>` : moneyS(x.total)}</span></button>`).join('') || emptyMsg('No hay ventas en este periodo.')}</section>`;
 }
 
 /* ---------- Clientes ---------- */
@@ -3562,7 +3599,7 @@ ACT.custOpen = async el => {
   pushModal(`<header class="sh-head"><div class="grow"><h3>${esc(c.name || 'Cliente')}</h3><div class="small muted">${esc(fmtPhone(c.phone || id))}${c.created ? ' · cliente desde ' + esc(fmtShort(ymd(new Date(c.created)))) : ''}</div></div>${closeBtn}</header>
   <div class="sh-body">
     <div class="row-wrap"><button class="btn sm primary" type="button" data-act="custNewOrder">${IC.plus} Llamada de servicio</button><button class="btn sm" type="button" data-act="custNewSale">${IC.cart} Venta</button>${wa ? `<a class="btn sm" href="${esc(wa)}" target="_blank" rel="noopener">${IC.chat} WhatsApp</a>` : ''}</div>
-    ${hist.length || !c.arch.length ? `<section><h4>Historial</h4>${hist.length ? `<ul class="hist">${hist.map(h => `<li><span class="muted">${esc(fmtShort(ymd(new Date(h.at))))}</span><span><b>${h.k === 'venta' ? 'Venta' : 'Servicio'} ${esc(h.no ? (String(h.no).startsWith('V-') ? h.no : '#' + h.no) : '')}</b> ${esc(h.what || '')}${h.total ? ' · ' + money(h.total) : ''}</span></li>`).join('')}</ul>` : '<p class="muted small">Sin historial todavía.</p>'}</section>` : ''}
+    ${hist.length || !c.arch.length ? `<section><h4>Historial</h4>${hist.length ? `<ul class="hist">${hist.map(h => `<li><span class="muted">${esc(fmtShort(ymd(new Date(h.at))))}</span><span><b>${h.k === 'venta' ? 'Venta' : 'Servicio'} ${esc(h.no ? (String(h.no).startsWith('V-') ? h.no : '#' + h.no) : '')}</b> ${esc(h.what || '')}${h.total ? ' · ' + money(h.total) : ''}${h.void ? ' · <b>anulada</b>' : ''}</span></li>`).join('')}</ul>` : '<p class="muted small">Sin historial todavía.</p>'}</section>` : ''}
     ${c.arch.length ? `<section><h4>Registro de servicios anteriores</h4><p class="small muted">${c.arch.length} ${c.arch.length === 1 ? 'servicio' : 'servicios'} del registro de la oficina.</p>${archHistHtml(c.arch, 40)}</section>` : ''}
     <section><h4>Datos</h4><div class="grid2">${f('name', 'Nombre')}${f('phone2', 'Otro teléfono', 'type="tel"')}${f('email', 'Email', 'type="email"')}${f('addr', 'Dirección')}</div>
       <div class="grid2"><label class="field"><span>Municipio</span><select class="inp" id="cu-mun"><option value="">—</option>${MUNICIPIOS.map(([m]) => `<option ${c.mun === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select></label>${f('ref', 'Punto de referencia')}</div>
@@ -3988,7 +4025,7 @@ async function repLoad(R) {
       call(() => S.db.collection('moves').where('day', '>=', R.pf).get()),
     ]);
     if (archReady()) { try { await archAll(); } catch (e) { console.warn('registro', e); } }
-    S.ui.rep = { key, orders: os.docs.map(d => ({ id: d.id, ...d.data() })), sales: ss.docs.flatMap(d => Object.values(d.data().e || {})).filter(Boolean), moves: ms.docs.flatMap(d => Object.values(d.data().e || {})).filter(Boolean) };
+    S.ui.rep = { key, orders: os.docs.map(d => ({ id: d.id, ...d.data() })), sales: ss.docs.flatMap(d => Object.values(d.data().e || {})).filter(x => x && !x.void), moves: ms.docs.flatMap(d => Object.values(d.data().e || {})).filter(Boolean) };
   } catch (e) { console.warn('reportes', e); toast(errMsg(e), 'err'); S.ui.rep = { key, err: true, orders: [], sales: [], moves: [] }; }
   S.ui.repLoading = null; schedule();
 }
@@ -4030,8 +4067,8 @@ function repAgg(D, a, b) {
   // Ganancia: piezas y equipos (precio menos costo, sin IVU) y la mano de obra y visitas de los servicios.
   const G = {}; let noCost = new Set();
   for (const m of D.moves) {
-    if (!['venta', 'uso', 'devol'].includes(m.k) || !m.item || !inR(dayOfIso(m.at))) continue;
-    const q = m.k === 'devol' ? -num(m.qty) : num(m.qty); const it = S.items.get(m.item);
+    if (!['venta', 'uso', 'devol', 'anula'].includes(m.k) || !m.item || !inR(dayOfIso(m.at))) continue;
+    const q = m.k === 'devol' || m.k === 'anula' ? -num(m.qty) : num(m.qty); const it = S.items.get(m.item);
     const cat = it?.cat || (it?.type === 'producto' ? 'Equipos' : 'Piezas'); const g = (G[cat] ||= { rev: 0, cost: 0 });
     g.rev = r2(g.rev + q * num(m.price)); g.cost = r2(g.cost + q * num(m.cost)); if (!num(m.cost) && num(m.price)) noCost.add(m.item);
   }
@@ -4121,7 +4158,7 @@ ACT.repDueLoad = async () => {
     const [os, ss] = await Promise.all([call(() => S.db.collection('orders').where('closedAt', '>=', sinceIso).get()), call(() => S.db.collection('sales').where('day', '>=', since).get())]);
     const L = [];
     for (const d of os.docs) { const o = { id: d.id, ...d.data() }; if (o.status !== 'completada') continue; const st = o.pay?.status || 'pendiente'; if (!['pendiente', 'credito', 'garantia'].includes(st)) continue; const owed = r2(orderTotals(o).total - (st === 'garantia' ? 0 : num(o.pay?.amount))); if (owed <= 0.009) continue; L.push({ kind: 'o', id: o.id, o, g: st === 'garantia' ? 'garantia' : 'cliente', who: o.cust?.name, ph: o.ph, ref: `Orden #${o.no}`, day: dayOfIso(o.closedAt), amt: owed }); }
-    for (const d of ss.docs) for (const x of Object.values(d.data().e || {})) if (x && !isRet(x) && x.pay?.method === 'Crédito / factura' && !x.paid) L.push({ kind: 's', id: x.id, x, g: 'cliente', who: x.cust?.name, ph: x.ph, ref: `Factura ${x.ref}`, day: dayOfIso(x.at), amt: num(x.total) });
+    for (const d of ss.docs) for (const x of Object.values(d.data().e || {})) if (x && !isRet(x) && !x.void && x.pay?.method === 'Crédito / factura' && !x.paid) L.push({ kind: 's', id: x.id, x, g: 'cliente', who: x.cust?.name, ph: x.ph, ref: `Factura ${x.ref}`, day: dayOfIso(x.at), amt: num(x.total) });
     S.ui.repDue = { list: L };
   } catch (e) { console.warn(e); toast(errMsg(e), 'err'); S.ui.repDue = null; }
   schedule();
@@ -4310,7 +4347,7 @@ async function boot(hot) {
    Las funciones con el mismo nombre que en los otros archivos los
    reemplazan (en JavaScript gana la última declaración).
    ===================================================================== */
-const APP_VERSION = '2026.11.21-de54c2';
+const APP_VERSION = '2026.11.23-cbef14';
 const FB_CONFIG = window.FB_CONFIG || null;
 const PACK = 24;   // el inventario va en 24 documentos (inv/b0…b23), unos 150 artículos en cada uno
 const W = {
@@ -4509,6 +4546,7 @@ async function flushCount() {
 }
 async function allDocs(coll) { return (await call(() => W.fs.collection(coll).get().catch(e => { throw fbErr(e); }))).docs; }
 function getSample() { return Promise.resolve(null); }
+function canVoid() { return isOffice() && W.u?.role === 'admin'; }
 function errMsg(e) {
   const c = e?.code;
   if (c === 'denied') return 'Tu cuenta no tiene permiso para esto. Pide a la oficina que revise tu acceso.';
