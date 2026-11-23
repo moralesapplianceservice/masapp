@@ -3342,7 +3342,7 @@ function openSaleDetail(sale, sigData, fresh) {
       <label class="chk small"><input type="checkbox" data-ch="printAuto" ${PRINT_AUTO() ? 'checked' : ''}> Imprimir solo al cobrar</label></div></section>
     <p class="small muted">Esta factura es interna: no sustituye lo que reporten del IVU en su sistema de cobro.</p>
   </div>
-  <footer class="sh-foot"><button class="btn" type="button" data-act="copyText">Copiar</button>${wa ? `<a class="btn" href="${esc(wa)}" target="_blank" rel="noopener">${IC.chat} WhatsApp</a>` : ''}<button class="btn" type="button" data-act="salePdf">${IC.file} PDF</button>${canRet ? `<button class="btn" type="button" data-act="retOpen">Devolver</button>` : ''}${canV ? `<button class="btn" type="button" data-act="saleVoid">Anular venta</button>` : ''}<button class="btn" type="button" data-act="salePrint">Imprimir</button>${r ? '' : `<button class="btn primary" type="button" data-act="saleNext">${IC.plus} Nueva venta</button>`}</footer>`, { onClose: () => { S.saleView = null; } });
+  <footer class="sh-foot"><button class="btn" type="button" data-act="copyText">Copiar</button>${wa ? `<a class="btn" href="${esc(wa)}" target="_blank" rel="noopener">${IC.chat} WhatsApp</a>` : ''}<button class="btn" type="button" data-act="salePdf">${IC.file} PDF</button>${canRet ? `<button class="btn" type="button" data-act="retOpen">Devolver</button>` : ''}${canV ? `<button class="btn" type="button" data-act="saleVoid">Anular venta</button>` : ''}${!r && canVoid() && !Object.keys(sale.rets || {}).length ? `<button class="btn danger" type="button" data-act="saleDelete">Eliminar del todo</button>` : ''}<button class="btn" type="button" data-act="salePrint">Imprimir</button>${r ? '' : `<button class="btn primary" type="button" data-act="saleNext">${IC.plus} Nueva venta</button>`}</footer>`, { onClose: () => { S.saleView = null; } });
   if (fresh && PRINT_AUTO()) setTimeout(() => ACT.salePrint(), 350);
 }
 ACT.printPaper = el => { lsSet('printPaper', el.dataset.p); el.parentElement.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed', String(c === el))); };
@@ -3402,6 +3402,21 @@ function receiptDoc(x, sig, paper) {
 /* ---------- Anular una venta (de prueba o mal registrada) ----------
    Queda en la lista como anulada, pero deja de contar en las ventas, el cuadre, el IVU y los reportes;
    lo vendido vuelve al inventario y el análisis lo resta. */
+// Devuelve lo vendido al inventario, lo resta del análisis y marca la venta como anulada.
+async function voidSaleCore(sale, reason) {
+  const at = nowIso(), from = sale.from || 'alm'; const g = saleGross(sale); const factor = g ? num(sale.sub) / g : 1; const moves = [];
+  for (const [i, l] of (sale.lines || []).entries()) {
+    const it = l.item && S.items.get(l.item); const q = retLeft(sale, i); if (!it || q <= 0) continue;
+    const mid = `anula-${sale.id}-${i}`;
+    if (isStocked(it)) await applyStock(it.id, { [from]: q }, mid);
+    moves.push(mkMove('anula', it, q, { id: mid, to: isStocked(it) ? from : null, ref: sale.ref, price: r2(num(l.price) * factor), note: `Venta ${sale.ref} anulada: ${reason}` }));
+  }
+  await logMoves(moves);
+  const day = ymd(new Date(sale.at));
+  await appendMap('sales/' + day, 'e', { [sale.id]: { void: { at, by: S.profile, reason } } }, { day });
+  if (String(sale.ph || '').length >= 7) { try { await appendMap('customers/' + sale.ph, 'hist', { [sale.id]: { void: true } }); } catch (e) { console.warn('historial', e); } }
+  sale.void = { at, by: S.profile, reason };
+}
 ACT.saleVoid = async () => {
   const v = S.saleView; if (!v || !guard()) return; const sale = v.sale;
   if (!canVoid()) { toast('Solo un administrador puede anular ventas.', 'warn'); return; }
@@ -3411,23 +3426,65 @@ ACT.saleVoid = async () => {
   const from = sale.from || 'alm';
   if (!(await confirmDlg('Anular venta', `<p>La venta <b>${esc(sale.ref)}</b> de <b>${money(sale.total)}</b> deja de contar en las ventas, el cuadre, el IVU y los reportes.</p><p>Lo vendido vuelve a ${esc(locName(from))}.</p><p class="small muted">Queda en la lista marcada como anulada, con el motivo: ${esc(reason)}.</p>`, 'Anular venta'))) return;
   busy('Anulando la venta…');
-  const at = nowIso(); const g = saleGross(sale); const factor = g ? num(sale.sub) / g : 1; const moves = [];
-  try {
-    for (const [i, l] of (sale.lines || []).entries()) {
-      const it = l.item && S.items.get(l.item); const q = retLeft(sale, i); if (!it || q <= 0) continue;
-      const mid = `anula-${sale.id}-${i}`;
-      if (isStocked(it)) await applyStock(it.id, { [from]: q }, mid);
-      moves.push(mkMove('anula', it, q, { id: mid, to: isStocked(it) ? from : null, ref: sale.ref, price: r2(num(l.price) * factor), note: `Venta ${sale.ref} anulada: ${reason}` }));
-    }
-    await logMoves(moves);
-    const day = ymd(new Date(sale.at));
-    await appendMap('sales/' + day, 'e', { [sale.id]: { void: { at, by: S.profile, reason } } }, { day });
-    if (String(sale.ph || '').length >= 7) { try { await appendMap('customers/' + sale.ph, 'hist', { [sale.id]: { void: true } }); } catch (e) { console.warn('historial', e); } }
-  } catch (e) { busy(null); toast(`No se pudo anular del todo: ${errMsg(e)} Intenta otra vez; lo que ya volvió al inventario no se repite.`, 'err'); return; }
-  sale.void = { at, by: S.profile, reason };
+  try { await voidSaleCore(sale, reason); }
+  catch (e) { busy(null); toast(`No se pudo anular del todo: ${errMsg(e)} Intenta otra vez; lo que ya volvió al inventario no se repite.`, 'err'); return; }
   busy(null); popModal(null);
   toast(`Venta ${sale.ref} anulada`, 'ok');
   openSaleDetail(sale);
+};
+/* ---------- Eliminar una venta del todo (solo el administrador) ----------
+   Para ventas de prueba: borra la factura, sus movimientos de inventario, el análisis, la firma y su
+   línea en el historial del cliente. Si no estaba anulada, primero devuelve lo vendido al inventario. */
+async function delMapKeys(path, field, keys) {
+  if (!keys.length) return;
+  const ref = S.db.doc(path);
+  await withLease(ref, async () => {
+    const snap = await call(() => ref.get()); if (!snap.exists) return;
+    const d = snap.data(); const m = { ...(d[field] || {}) }; let ch = false;
+    for (const k of keys) if (k in m) { delete m[k]; ch = true; }
+    if (ch) await call(() => ref.set({ ...d, [field]: m }));
+  });
+}
+// Si era el último número dado, el próximo vuelve a usarlo (no queda un hueco en la numeración).
+async function counterRollback(field, no) {
+  const ref = S.db.doc('meta/counter'); let back = false;
+  try { await withLease(ref, async () => { const s = await call(() => ref.get()); if (s.exists && num(s.data()[field]) === num(no)) { await call(() => ref.update({ [field]: num(no) - 1 })); back = true; } }); } catch (e) { console.warn('contador', e); }
+  return back;
+}
+ACT.saleDelete = async () => {
+  const v = S.saleView; if (!v || !guard()) return; const sale = v.sale;
+  if (!canVoid()) { toast('Solo un administrador puede eliminar ventas.', 'warn'); return; }
+  if (Object.keys(sale.rets || {}).length) { toast('Esta venta tiene devoluciones: no se puede eliminar.', 'warn'); return; }
+  const typed = await formDlg('Eliminar la venta del todo', `<p>Se borra la venta <b>${esc(sale.ref)}</b> (${money(sale.total)}) <b>sin dejar rastro</b>: la factura, sus movimientos de inventario, el análisis, la firma y su línea en el historial del cliente.</p>${sale.void ? '' : `<p>Lo vendido vuelve a ${esc(locName(sale.from || 'alm'))}.</p>`}<p><b>No se puede deshacer.</b> Úsalo solo para ventas de prueba o hechas por error.</p><label class="field"><span>Escribe <b>${esc(sale.ref)}</b> para confirmar</span><input class="inp" id="del-ref" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>`, 'Eliminar del todo', L => L.querySelector('#del-ref').value);
+  if (typed == null) return;
+  if (String(typed).trim().toUpperCase() !== String(sale.ref).toUpperCase()) { toast(`No coincide: había que escribir ${sale.ref}.`, 'warn'); return; }
+  busy('Eliminando la venta…');
+  try {
+    if (!sale.void) await voidSaleCore(sale, 'Eliminada');
+    const day = ymd(new Date(sale.at)), vday = ymd(new Date(sale.void?.at || nowIso()));
+    const ids = []; 
+    for (const d of new Set([day, vday])) {
+      const snap = await call(() => S.db.doc('moves/' + d).get()); const e = snap.exists ? (snap.data().e || {}) : {};
+      const ks = Object.entries(e).filter(([, m]) => m && m.ref === sale.ref && (m.k === 'venta' || m.k === 'anula')).map(([k]) => k);
+      ids.push(...ks); await delMapKeys('moves/' + d, 'e', ks);
+    }
+    for (const mo of new Set([day.slice(0, 7), vday.slice(0, 7)])) await delMapKeys('stats/' + mo, 'e', ids);
+    await delMapKeys('sales/' + day, 'e', [sale.id]);
+    if (sale.sig) { try { await call(() => S.db.doc('sigs/' + sale.id).delete()); } catch (e) { console.warn('firma', e); } }
+    if (String(sale.ph || '').length >= 7) {
+      const cref = S.db.doc('customers/' + sale.ph); const cs = await call(() => cref.get());
+      if (cs.exists) {
+        const c = cs.data(); const others = Object.keys(c.hist || {}).filter(k => k !== sale.id);
+        const madeBySale = c.created && Math.abs(new Date(c.created) - new Date(sale.at)) < 10 * 60000;
+        if (!others.length && madeBySale) await call(() => cref.delete()); else await delMapKeys('customers/' + sale.ph, 'hist', [sale.id]);
+      }
+    }
+    const reused = await counterRollback('sale', sale.no);
+    if (S.ui.sales?.list) S.ui.sales.list = S.ui.sales.list.filter(x => x.id !== sale.id);
+    S.ui.rep = null; S.ui.custLoaded = false;
+    busy(null); popModal(null);
+    toast(`Venta ${sale.ref} eliminada del todo${reused ? `. La próxima venta usará el número ${sale.ref}.` : '.'}`, 'ok');
+  } catch (e) { busy(null); console.warn(e); toast(`No se pudo eliminar del todo: ${errMsg(e)} Intenta otra vez.`, 'err'); }
 };
 
 /* ---------- Devoluciones ---------- */
@@ -4347,7 +4404,7 @@ async function boot(hot) {
    Las funciones con el mismo nombre que en los otros archivos los
    reemplazan (en JavaScript gana la última declaración).
    ===================================================================== */
-const APP_VERSION = '2026.11.23-cbef14';
+const APP_VERSION = '2026.11.23-9facdc';
 const FB_CONFIG = window.FB_CONFIG || null;
 const PACK = 24;   // el inventario va en 24 documentos (inv/b0…b23), unos 150 artículos en cada uno
 const W = {
@@ -4547,6 +4604,17 @@ async function flushCount() {
 async function allDocs(coll) { return (await call(() => W.fs.collection(coll).get().catch(e => { throw fbErr(e); }))).docs; }
 function getSample() { return Promise.resolve(null); }
 function canVoid() { return isOffice() && W.u?.role === 'admin'; }
+// Borrar entradas de un mapa y devolver el contador: directo en Firestore.
+async function delMapKeys(path, field, keys) {
+  if (!keys.length) return;
+  const args = []; for (const k of keys) args.push(FP(field, k), FV().delete());
+  try { await settle(W.fs.doc(path).update(...args)); } catch (e) { if (fbErr(e)?.code !== 'invalid_argument') throw e; }
+}
+async function counterRollback(field, no) {
+  const ref = W.fs.doc('meta/counter');
+  try { return await withTimeout(W.fs.runTransaction(async tx => { const s = await tx.get(ref); if (s.exists && num(s.data()[field]) === num(no)) { tx.update(ref, FP(field), num(no) - 1); return true; } return false; }), 10000); }
+  catch (e) { console.warn('contador', e); return false; }
+}
 function errMsg(e) {
   const c = e?.code;
   if (c === 'denied') return 'Tu cuenta no tiene permiso para esto. Pide a la oficina que revise tu acceso.';
