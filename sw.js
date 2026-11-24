@@ -1,5 +1,5 @@
 // Guarda la app en el dispositivo para que abra sin internet y se actualice sola.
-const CACHE = 'mas-2026.11.23-9b00fb';
+const CACHE = 'mas-2026.11.23-885fe2';
 const ASSETS = [
  "./",
  "./index.html",
@@ -13,6 +13,8 @@ const ASSETS = [
  "./icons/icon-180.png",
  "./icons/icon-192.png",
  "./icons/icon-512.png",
+ "./img/logo-claro.jpg",
+ "./img/logo-oscuro.jpg",
  "./lib/firebase-app-compat.js",
  "./lib/firebase-auth-compat.js",
  "./lib/firebase-firestore-compat.js",
