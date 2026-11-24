@@ -635,6 +635,11 @@ const S = {
 /* ---------- Accesos a configuración ---------- */
 const cfg = () => S.cfg || DEFAULT_CFG;
 const biz = () => ({ ...DEFAULT_CFG.business, ...(cfg().business || {}) });
+// Pie de nota: las facturas de servicio y los recibos de venta de mostrador tienen cada uno el suyo (Ajustes).
+// Una venta guarda el que regía al registrarse y una orden el que regía cuando firmó el cliente.
+// El de ventas vive aparte de "business" para que guardar los datos del negocio desde una versión vieja no lo borre.
+const footSvc = () => String(biz().note ?? '');
+const footSale = () => String(cfg().saleFoot ?? biz().note ?? '');
 const locs = () => Object.entries(cfg().locations || DEFAULT_CFG.locations).map(([id, v]) => ({ id, ...v })).filter(l => l.active !== false).sort((a, b) => (a.kind === 'store' ? 0 : 1) - (b.kind === 'store' ? 0 : 1) || num(a.order) - num(b.order) || String(a.name).localeCompare(String(b.name)));
 const vans = () => locs().filter(l => l.kind === 'van');
 const techs = () => Object.entries(cfg().techs || {}).map(([id, v]) => ({ id, ...v })).filter(t => t.active !== false).sort((a, b) => num(a.order) - num(b.order) || String(a.name).localeCompare(String(b.name)));
@@ -1441,7 +1446,11 @@ function vAjustes() {
     </div>
     <label class="field"><span>Horario (sale en facturas y promociones)</span><input class="inp" id="b-hours" value="${esc(b.hours)}" placeholder="Lunes a viernes 8:00 a. m. a 5:00 p. m."></label>
     <label class="field"><span>Garantía del servicio (sale en la factura de servicio)</span><textarea class="inp" id="b-warranty" rows="2" placeholder="Escribe la garantía que ofrecen en piezas y mano de obra">${esc(b.warranty)}</textarea></label>
-    <label class="field"><span>Nota al pie de las facturas</span><input class="inp" id="b-note" value="${esc(b.note)}"></label>
+    <div class="grid2">
+      <label class="field"><span>Pie de nota · facturas de servicio</span><textarea class="inp" id="b-note" rows="3" placeholder="Políticas para los servicios">${esc(b.note)}</textarea></label>
+      <label class="field"><span>Pie de nota · recibos de venta en mostrador</span><textarea class="inp" id="b-salefoot" rows="3" placeholder="Políticas para las ventas">${esc(footSale())}</textarea></label>
+    </div>
+    <p class="small muted">Cada pie sale solo en sus documentos: el de servicio en la factura de servicio y el resumen para el cliente; el de venta en el recibo (80 mm y carta), la factura PDF y las devoluciones. Las ventas ya registradas y las órdenes ya firmadas conservan el pie que tenían.</p>
     <div><button class="btn primary" type="button" data-act="saveBiz">Guardar datos del negocio</button></div>
   </section>
   ${feesCard()}
@@ -1778,7 +1787,7 @@ function buildOrderPatch(M, extra = {}) {
     h[hid()] = { at: nowIso(), by: S.profile, s: patch.status || o.status, note: nt && nd ? `Programada con ${techName(nt)} para ${fmtShort(nd)}` : 'Quitada de la ruta' };
   }
   const nameEl = M.layer.querySelector('#o-signame');
-  if (M.sigDirty && M.sigCanvas) { patch.sig = M.sigCanvas.toDataURL('image/png'); patch.sigName = (nameEl?.value || '').trim(); patch.sigAt = nowIso(); }
+  if (M.sigDirty && M.sigCanvas) { patch.sig = M.sigCanvas.toDataURL('image/png'); patch.sigName = (nameEl?.value || '').trim(); patch.sigAt = nowIso(); patch.foot = footSvc(); }
   if (extra.status) { const sp = statusPatch(o, extra.status, extra.note || ''); Object.assign(h, sp.h); delete sp.h; Object.assign(patch, sp); }
   if (extra.more) Object.assign(patch, extra.more);
   if (Object.keys(h).length) patch.h = h;
@@ -1957,7 +1966,7 @@ function summaryText(o) {
   }
   if (o.pay?.method) L.push(`Pago: ${o.pay.method} (${PAY_STATUS[o.pay.status] || ''})`);
   if (b.phone) L.push(`Tel. ${b.phone}`);
-  if (b.note) L.push(b.note);
+  const foot = o.foot ?? footSvc(); if (foot) L.push(foot);
   return L.join('\n');
 }
 ACT.summary = () => {
@@ -1988,13 +1997,13 @@ function receiptHtml(o) {
 ${o.pay?.method ? `<p><b>Forma de pago:</b> ${esc(o.pay.method)} · ${esc(PAY_STATUS[o.pay.status] || '')}${num(o.pay.amount) ? ' · ' + money(o.pay.amount) : ''}</p>` : ''}
 ${hasEst(o.est) ? (() => { const e = estClean(o.est); const et = estTotals(o.est, o.ivuOn); return `<h2>Estimado de reparación <small class="muted">(no incluido en el total)</small></h2><table><thead><tr><th class="r">Cant.</th><th>Núm. de pieza</th><th>Descripción</th><th class="r">Precio</th><th class="r">Monto</th></tr></thead><tbody>${e.lines.map(l => `<tr><td class="r">${fq(l.qty)}</td><td>${esc(l.sku)}</td><td>${esc(l.name)}</td><td class="r">${money(l.price)}</td><td class="r">${money(l.qty * l.price)}</td></tr>`).join('')}${et.labor ? `<tr><td class="r">1</td><td></td><td>Mano de obra</td><td class="r">${money(et.labor)}</td><td class="r">${money(et.labor)}</td></tr>` : ''}</tbody></table><table class="tot"><tr><td>Subtotal</td><td class="r">${money(et.sub)}</td></tr>${ivuRows(et.sub, et.ivu).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="r">${money(v)}</td></tr>`).join('')}<tr><td class="big">Total estimado</td><td class="r big">${money(et.total)}</td></tr></table>`; })() : ''}
 ${sig ? `<p><b>Firma del cliente:</b><br><img src="${sig}" alt="Firma"><br>${esc(o.sigName || '')}</p>` : ''}
-<p class="muted">${esc(b.note || '')}</p></body></html>`;
+${(o.foot ?? footSvc()) ? `<p class="muted" style="white-space:pre-line">${esc(o.foot ?? footSvc())}</p>` : ''}</body></html>`;
 }
 ACT.receipt = async () => {
   const M = S.om; if (!M) return;
   if (!S.dl) { toast('Esta vista no permite descargar archivos. Usa "Enviar resumen".', 'warn'); return; }
   const o = mergedOrder(M);
-  if (M.sigDirty && M.sigCanvas) { o.sig = M.sigCanvas.toDataURL('image/png'); o.sigName = (M.layer.querySelector('#o-signame')?.value || '').trim(); o.sigAt = nowIso(); }
+  if (M.sigDirty && M.sigCanvas) { o.sig = M.sigCanvas.toDataURL('image/png'); o.sigName = (M.layer.querySelector('#o-signame')?.value || '').trim(); o.sigAt = nowIso(); o.foot = footSvc(); }
   let blob = null;
   try { busy('Preparando la factura…'); blob = await serviceInvoicePdf(o); } catch (e) { console.warn(e); } finally { busy(null); }
   if (blob) { await saveFile(`Factura-${o.no}.pdf`, blob); return; }
@@ -2272,7 +2281,7 @@ ACT.mvSubmit = async () => {
 };
 function saleText(ref, mv) {
   const b = biz(); const sub = r2(sum(mv.lines, l => num(l.qty) * num(l.price))); const ivu = mv.ivuOn ? ivuOf(sub) : 0;
-  return [`${b.name} — Venta ${ref}`, fmtDateTime(nowIso()), mv.cust ? `Cliente: ${mv.cust}` : '', ...mv.lines.map(l => `• ${fq(l.qty)} × ${l.it.name}: ${money(num(l.qty) * num(l.price))}`), `Subtotal: ${money(sub)}`, `${ivuRows(sub, ivu).map(([k, v]) => `${k}: ${money(v)}`).join(' · ')}`, `Total: ${money(sub + ivu)}`, `Pago: ${mv.pay}`, b.note || ''].filter(Boolean).join('\n');
+  return [`${b.name} — Venta ${ref}`, fmtDateTime(nowIso()), mv.cust ? `Cliente: ${mv.cust}` : '', ...mv.lines.map(l => `• ${fq(l.qty)} × ${l.it.name}: ${money(num(l.qty) * num(l.price))}`), `Subtotal: ${money(sub)}`, `${ivuRows(sub, ivu).map(([k, v]) => `${k}: ${money(v)}`).join(' · ')}`, `Total: ${money(sub + ivu)}`, `Pago: ${mv.pay}`, footSale()].filter(Boolean).join('\n');
 }
 function saleReceipt(ref, mv) {
   const text = saleText(ref, mv); const wa = waUrl(mv.phone, text); S.copyText = text;
@@ -2559,7 +2568,7 @@ ACT.backupJson = async () => {
 ACT.saveBiz = async () => {
   const g = id => ($('#' + id)?.value ?? '').trim();
   const business = { name: g('b-name') || 'Mi negocio', phone: g('b-phone'), addr: g('b-addr'), mun: g('b-mun'), ivu: r2(num(g('b-ivust')) + num(g('b-ivumu'))), ivuMun: r2(num(g('b-ivumu'))), email: g('b-email'), hours: g('b-hours'), warranty: g('b-warranty'), note: g('b-note') };
-  if (await run('Guardando…', () => saveCfg({ business }))) toast('Datos del negocio guardados', 'ok');
+  if (await run('Guardando…', () => saveCfg({ business, saleFoot: g('b-salefoot') }))) toast('Datos del negocio guardados', 'ok');
 };
 ACT.saveCats = async () => {
   const categories = [...new Set(($('#c-cats')?.value || '').split('\n').map(s => s.trim()).filter(Boolean))];
@@ -2974,7 +2983,7 @@ async function serviceInvoicePdf(o) {
   const sig = safeImg(o.sig);
   if (sig) P.image(sig, 200, 75); else { P.y += 34; P.d.setDrawColor('#777777'); P.d.line(P.m, P.y, P.m + 240, P.y); P.y += 6; }
   P.text([o.sigName, o.sigAt && fmtDateTime(o.sigAt)].filter(Boolean).join(' · '), { size: 8.5, color: '#444444', gap: 8 });
-  if (biz().note) P.text(biz().note, { size: 8.5, color: '#444444' });
+  const foot = o.foot ?? footSvc(); if (foot) P.text(foot, { size: 8.5, color: '#444444' });
   return P.blob();
 }
 async function saleInvoicePdf(s, sig) {
@@ -2991,7 +3000,7 @@ async function saleInvoicePdf(s, sig) {
   if (w.length) { P.label('Garantía'); w.forEach(l => P.text(`${l.name}${l.serial ? ' (serie ' + l.serial + ')' : ''}: ${l.warranty || 'según el fabricante'}${l.wphone ? `. Para servicio de garantía llame al ${l.wphone}${l.brand ? ' (' + l.brand + ')' : ''}` : ''}.`, { gap: 3 })); P.y += 5; }
   if (s.note) P.text(s.note, { gap: 8 });
   if (sig) { P.label('Firma del cliente'); P.image(sig, 200, 75); }
-  if (biz().note) P.text(biz().note, { size: 8.5, color: '#444444' });
+  const foot = s.foot ?? footSale(); if (foot) P.text(foot, { size: 8.5, color: '#444444' });
   return P.blob();
 }
 async function routePdf(techIds, day) {
@@ -3302,7 +3311,7 @@ ACT.saleSubmit = async () => {
     catch (e) { fail = { l, e }; break; }
   }
   const sigData = hp && s.pad?.dirty ? s.pad.data() : null;
-  const sale = { id: sid, no, ref, at, by: S.profile, cust: { ...s.cust }, ph: ph10(digits(s.cust.phone)), from: s.from, ivuOn: s.ivuOn, pay: { method: s.pay, ref: cash ? '' : s.payRef.trim(), ...(recv ? { received: recv } : {}) }, disc: T0.disc, ...(T0.disc && s.discMode === '%' ? { discPct: num(s.disc) } : {}), note: s.note.trim(), sig: !!sigData,
+  const sale = { id: sid, no, ref, at, by: S.profile, foot: footSale(), cust: { ...s.cust }, ph: ph10(digits(s.cust.phone)), from: s.from, ivuOn: s.ivuOn, pay: { method: s.pay, ref: cash ? '' : s.payRef.trim(), ...(recv ? { received: recv } : {}) }, disc: T0.disc, ...(T0.disc && s.discMode === '%' ? { discPct: num(s.disc) } : {}), note: s.note.trim(), sig: !!sigData,
     lines: done.map(l => { const mf = mfrFor(l.it.brand); const prod = l.it.type === 'producto'; return { item: l.it.id, sku: l.it.sku || '', name: l.it.name, type: l.it.type, brand: l.it.brand || '', qty: r2(num(l.qty)), price: r2(num(l.price)), serial: (l.serial || '').trim(), warranty: prod ? (l.it.warranty || mf?.terms || '') : '', wphone: prod ? (l.it.wphone || mf?.phone || '') : '' }; }) };
   Object.assign(sale, saleCalc(sale));
   if (recv) sale.pay.change = r2(recv - sale.total);
@@ -3331,7 +3340,7 @@ function saleSummary(x) {
     ...(x.lines || []).map(l => `• ${fq(l.qty)} × ${l.name}${l.serial ? ' (serie ' + l.serial + ')' : ''}: ${money(num(l.qty) * num(l.price))}`),
     `Subtotal: ${money(Math.abs(saleGross(x)))}`, num(x.disc) ? `Descuento: −${money(x.disc)}` : '', ...ivuRows(Math.abs(num(x.sub)), Math.abs(num(x.ivu)), x.ivuSt != null ? { ivuSt: Math.abs(x.ivuSt), ivuMu: Math.abs(x.ivuMu) } : null).map(([k, v]) => `${k}: ${money(v)}`),
     r ? `Total devuelto: ${money(-num(x.total))}` : `Total: ${money(x.total)}`, `${r ? 'Devuelto en' : 'Pago'}: ${x.pay?.method || ''}`,
-    ...(r ? [] : (x.lines || []).filter(l => l.warranty).map(l => `Garantía ${l.name}: ${l.warranty}${l.wphone ? ' · Tel. ' + l.wphone : ''}`)), b.note || ''].filter(Boolean).join('\n');
+    ...(r ? [] : (x.lines || []).filter(l => l.warranty).map(l => `Garantía ${l.name}: ${l.warranty}${l.wphone ? ' · Tel. ' + l.wphone : ''}`)), x.foot ?? footSale()].filter(Boolean).join('\n');
 }
 // Lo que queda por devolver de cada línea de una venta.
 const retLeft = (sale, i) => r2(num(sale.lines?.[i]?.qty) - num(sale.ret?.[i]));
@@ -3379,7 +3388,7 @@ function printHtml(html) {
   if (!n) setTimeout(go, 120); else imgs.forEach(i => { if (!i.complete) i.onload = i.onerror = () => { if (--n === 0) setTimeout(go, 60); }; });
 }
 function receiptDoc(x, sig, paper) {
-  const b = biz(); const r = isRet(x); const c = x.cust || {}; const t80 = paper === '80mm';
+  const b = biz(); const r = isRet(x); const c = x.cust || {}; const t80 = paper === '80mm'; const foot = x.foot ?? footSale();
   const ln = (x.lines || []).map(l => t80
     ? `<div class="l"><div>${fq(l.qty)} × ${esc(l.name)}</div><div class="r">${l.sku ? `<span class="sku">${esc(l.sku)}</span>` : '<span></span>'}<span>${money(num(l.qty) * num(l.price))}</span></div>${l.serial ? `<div class="sm">Serie ${esc(l.serial)}</div>` : ''}${r && !l.back ? '<div class="sm">Defectuosa: no vuelve al inventario</div>' : ''}</div>`
     : `<tr><td class="n">${fq(l.qty)}</td><td class="mono">${esc(l.sku || '')}</td><td>${esc(l.name)}${l.serial ? `<div class="sm">Serie ${esc(l.serial)}</div>` : ''}${r && !l.back ? '<div class="sm">Defectuosa: no vuelve al inventario</div>' : ''}</td><td class="n">${money(l.price)}</td><td class="n">${money(num(l.qty) * num(l.price))}</td></tr>`).join('');
@@ -3389,8 +3398,8 @@ function receiptDoc(x, sig, paper) {
   const title = r ? 'DEVOLUCIÓN' : 'FACTURA';
   const when = `${fmtDateY(ymd(new Date(x.at)))}, ${fmtTime(x.at)}`;
   const css = t80
-    ? `@page{size:80mm auto;margin:0}*{box-sizing:border-box}body{margin:0;font:12px/1.35 Arial,Helvetica,sans-serif;color:#000}.w{width:72mm;margin:0 auto;padding:3mm 0 6mm}.c{text-align:center}.biz{font-size:15px;font-weight:700}.sm{font-size:10.5px}.hr{border-top:1px dashed #000;margin:6px 0}.l{margin:4px 0}.r{display:flex;justify-content:space-between;gap:6px}.sku{font-family:monospace;font-size:10.5px}.t{display:flex;justify-content:space-between}.big{font-size:16px;font-weight:700}img{max-width:60mm;max-height:22mm}`
-    : `@page{size:letter;margin:14mm}*{box-sizing:border-box}body{margin:0;font:11pt/1.4 Arial,Helvetica,sans-serif;color:#111}.head{display:flex;justify-content:space-between;gap:20px;border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:12px}.biz{font-size:17pt;font-weight:700}.box{text-align:right}.box .tt{font-size:15pt;font-weight:700;letter-spacing:.04em}.sm{font-size:9pt;color:#444}table{width:100%;border-collapse:collapse;margin:10px 0}th{text-align:left;font-size:9pt;text-transform:uppercase;border-bottom:1px solid #111;padding:5px 4px}td{padding:6px 4px;border-bottom:1px solid #ddd;vertical-align:top}.n{text-align:right;white-space:nowrap}.mono{font-family:monospace}.tot{margin-left:auto;width:260px}.t{display:flex;justify-content:space-between;padding:2px 0}.big{font-size:14pt;font-weight:700;border-top:1px solid #111;margin-top:4px;padding-top:4px}.sec{margin-top:12px}img{max-width:220px;max-height:80px}`;
+    ? `@page{size:80mm auto;margin:0}.foot{white-space:pre-line}*{box-sizing:border-box}body{margin:0;font:12px/1.35 Arial,Helvetica,sans-serif;color:#000}.w{width:72mm;margin:0 auto;padding:3mm 0 6mm}.c{text-align:center}.biz{font-size:15px;font-weight:700}.sm{font-size:10.5px}.hr{border-top:1px dashed #000;margin:6px 0}.l{margin:4px 0}.r{display:flex;justify-content:space-between;gap:6px}.sku{font-family:monospace;font-size:10.5px}.t{display:flex;justify-content:space-between}.big{font-size:16px;font-weight:700}img{max-width:60mm;max-height:22mm}`
+    : `@page{size:letter;margin:14mm}.foot{white-space:pre-line}*{box-sizing:border-box}body{margin:0;font:11pt/1.4 Arial,Helvetica,sans-serif;color:#111}.head{display:flex;justify-content:space-between;gap:20px;border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:12px}.biz{font-size:17pt;font-weight:700}.box{text-align:right}.box .tt{font-size:15pt;font-weight:700;letter-spacing:.04em}.sm{font-size:9pt;color:#444}table{width:100%;border-collapse:collapse;margin:10px 0}th{text-align:left;font-size:9pt;text-transform:uppercase;border-bottom:1px solid #111;padding:5px 4px}td{padding:6px 4px;border-bottom:1px solid #ddd;vertical-align:top}.n{text-align:right;white-space:nowrap}.mono{font-family:monospace}.tot{margin-left:auto;width:260px}.t{display:flex;justify-content:space-between;padding:2px 0}.big{font-size:14pt;font-weight:700;border-top:1px solid #111;margin-top:4px;padding-top:4px}.sec{margin-top:12px}img{max-width:220px;max-height:80px}`;
   const totHtml = tot.map(([k, v]) => `<div class="t"><span>${esc(k)}</span><span>${v}</span></div>`).join('') + `<div class="t big"><span>${r ? 'Total devuelto' : 'Total'}</span><span>${money(Math.abs(num(x.total)))}</span></div>`;
   const body = t80
     ? `<div class="w"><div class="c"><div class="biz">${esc(b.name || '')}</div><div class="sm">${esc(bizAddr())}</div><div class="sm">${esc(b.phone || '')}</div></div>
@@ -3400,7 +3409,7 @@ function receiptDoc(x, sig, paper) {
       ${war.length ? `<div class="hr"></div><div class="sm"><b>Garantía</b><br>${war.join('<br>')}</div>` : ''}
       ${x.note ? `<div class="sm" style="margin-top:4px">${esc(x.note)}</div>` : ''}${r && x.reason ? `<div class="sm">Motivo: ${esc(x.reason)}</div>` : ''}
       ${sig ? `<div class="hr"></div><div class="sm">Firma del cliente</div><img src="${sig}" alt="">` : ''}
-      ${b.note ? `<div class="hr"></div><div class="c sm">${esc(b.note)}</div>` : ''}</div>`
+      ${foot ? `<div class="hr"></div><div class="c sm foot">${esc(foot)}</div>` : ''}</div>`
     : `<div class="head"><div><div class="biz">${esc(b.name || '')}</div><div class="sm">${esc(bizAddr())}</div><div class="sm">${esc(b.phone || '')}${b.email ? ' · ' + esc(b.email) : ''}</div></div>
       <div class="box"><div class="tt">${title}</div><div><b>${esc(x.ref)}</b></div><div class="sm">${esc(when)}</div>${r ? `<div class="sm">Factura original ${esc(x.ofRef)}</div>` : ''}</div></div>
       ${c.name || c.phone ? `<div><div class="sm">Cliente</div><b>${esc(c.name || '')}</b><div class="sm">${esc([fmtPhone(c.phone), c.email].filter(Boolean).join(' · '))}</div><div class="sm">${esc([c.addr, c.mun].filter(Boolean).join(', '))}</div></div>` : ''}
@@ -3409,7 +3418,7 @@ function receiptDoc(x, sig, paper) {
       ${war.length ? `<div class="sec"><b>Garantía</b><br>${war.join('<br>')}</div>` : ''}
       ${x.note ? `<div class="sec">${esc(x.note)}</div>` : ''}${r && x.reason ? `<div class="sec">Motivo: ${esc(x.reason)}</div>` : ''}
       ${sig ? `<div class="sec"><div class="sm">Firma del cliente</div><img src="${sig}" alt=""></div>` : ''}
-      ${b.note ? `<div class="sec sm">${esc(b.note)}</div>` : ''}`;
+      ${foot ? `<div class="sec sm foot">${esc(foot)}</div>` : ''}`;
   return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${title} ${esc(x.ref)}</title><style>${css}</style></head><body>${body}</body></html>`;
 }
 
@@ -3546,7 +3555,7 @@ ACT.retGo = async () => {
       done.push({ ...x, back });
     } catch (e) { fail = { x, e }; break; }
   }
-  const rec = { id: rid, kind: 'dev', no, ref, at, by: S.profile, of: sale.id, ofRef: sale.ref, cust: { ...(sale.cust || {}) }, ph: sale.ph || '', from, ivuOn: !!sale.ivuOn, pay: { method: R.method }, reason: R.reason, note: (R.note || '').trim(),
+  const rec = { id: rid, kind: 'dev', no, ref, at, by: S.profile, foot: footSale(), of: sale.id, ofRef: sale.ref, cust: { ...(sale.cust || {}) }, ph: sale.ph || '', from, ivuOn: !!sale.ivuOn, pay: { method: R.method }, reason: R.reason, note: (R.note || '').trim(),
     lines: done.map(x => ({ item: x.l.item, sku: x.l.sku || '', name: x.l.name, type: x.l.type || '', qty: x.q, price: r2(num(x.l.price) * t.factor), serial: x.l.serial || '', back: x.back })) };
   const sub = r2(sum(rec.lines, l => l.qty * l.price)); const ip = rec.ivuOn ? ivuParts(sub) : { st: 0, mu: 0, total: 0 };
   Object.assign(rec, { gross: -sub, disc: 0, sub: -sub, ivu: -ip.total, ivuSt: -ip.st, ivuMu: -ip.mu, total: -r2(sub + ip.total) });
@@ -4418,7 +4427,7 @@ async function boot(hot) {
    Las funciones con el mismo nombre que en los otros archivos los
    reemplazan (en JavaScript gana la última declaración).
    ===================================================================== */
-const APP_VERSION = '2026.11.23-175e25';
+const APP_VERSION = '2026.11.23-2ce1bc';
 const FB_CONFIG = window.FB_CONFIG || null;
 const PACK = 24;   // el inventario va en 24 documentos (inv/b0…b23), unos 150 artículos en cada uno
 const W = {
