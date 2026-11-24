@@ -378,6 +378,10 @@ body.modal-open{overflow:hidden}
 .pos-cust-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:8px}
 .pos-cust-ic{color:var(--muted);display:inline-flex}
 .pos-cust .grid3{gap:8px}
+.foot-chk{align-items:flex-start;padding:4px 0}
+.foot-chk input{margin-top:1px;flex:0 0 auto}
+.foot-chk span{display:flex;flex-direction:column;gap:2px;min-width:0}
+.foot-chk small{font-size:12.5px;line-height:1.35;white-space:pre-line;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .pos-disc{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:flex-end}
 .pos-disc .field{width:120px}
 .pos-disc .inp{min-height:44px;font-size:18px}
@@ -3059,7 +3063,7 @@ const moneyS = n => num(n) < 0 ? '−' + money(-num(n)) : money(n);
 ACT.newSale = () => openSale();
 function openSale(preset = {}) {
   if (!guard()) return;
-  S.sale = { from: 'alm', lines: [], cust: { name: '', phone: '', email: '', addr: '', mun: '' }, pay: 'Efectivo', payRef: '', recv: '', ivuOn: true, note: '', q: '', custMore: false, noteOpen: false, resOpen: false, step: 'cart', disc: '', discMode: '$', discOpen: false };
+  S.sale = { from: 'alm', lines: [], cust: { name: '', phone: '', email: '', addr: '', mun: '' }, pay: 'Efectivo', payRef: '', recv: '', ivuOn: true, note: '', q: '', custMore: false, footOn: true, noteOpen: false, resOpen: false, step: 'cart', disc: '', discMode: '$', discOpen: false };
   if (preset.item) S.sale.lines.push(saleLine(preset.item));
   if (preset.cust) for (const k of Object.keys(S.sale.cust)) if (preset.cust[k]) S.sale.cust[k] = preset.cust[k];
   const s = S.sale;
@@ -3101,6 +3105,7 @@ function saleBody() {
       <div id="sl-paybox">${salePayHtml()}</div>
       <div id="sl-discbox">${saleDiscHtml()}</div>
       <div id="sl-notebox">${saleNoteHtml()}</div>
+      <div id="sl-footbox">${footChkHtml('sl-foot', 'data-ch="saleField" data-f="footOn"', S.sale.footOn)}</div>
       <section id="sl-sigsec" class="${hp ? '' : 'hidden'}"><h4>Firma del cliente</h4><canvas class="sig" id="sl-sig" aria-label="Área para que el cliente firme"></canvas><div><button class="btn sm" type="button" data-act="saleSigClear">Borrar firma</button></div></section>
     </div>
     <div class="pos-pay-foot"><button class="btn primary pos-go" id="sl-go" type="button" data-act="saleSubmit">${saleGoLabel()}</button></div>
@@ -3177,6 +3182,8 @@ function saleCustHtml() {
   </div>`;
 }
 ACT.saleCustMore = () => { const s = S.sale; if (!s) return; s.custMore = true; s.layer.querySelector('#sl-custbox').innerHTML = saleCustHtml(); s.layer.querySelector('#sl-email')?.focus(); };
+// Casilla del pie de nota de ventas: el vendedor escoge si el recibo lo lleva; se ve el texto para saber qué saldrá.
+const footChkHtml = (id, attrs, on) => { const f = footSale().trim(); return f ? `<label class="chk foot-chk"><input type="checkbox" id="${id}" ${attrs} ${on ? 'checked' : ''}><span>Pie de nota en el recibo<small class="muted">${esc(f)}</small></span></label>` : ''; };
 const saleNoteHtml = () => { const s = S.sale; return s.noteOpen || s.note ? `<label class="field"><span>Nota en la factura</span><input class="inp" id="sl-note" value="${esc(s.note)}" data-in="saleField" data-f="note"></label>` : `<button class="btn pos-more" type="button" data-act="saleNoteOpen">${IC.plus} Nota en la factura</button>`; };
 // Billetes que más se usan para pagar ese total.
 function saleBills(total) {
@@ -3311,7 +3318,7 @@ ACT.saleSubmit = async () => {
     catch (e) { fail = { l, e }; break; }
   }
   const sigData = hp && s.pad?.dirty ? s.pad.data() : null;
-  const sale = { id: sid, no, ref, at, by: S.profile, foot: footSale(), cust: { ...s.cust }, ph: ph10(digits(s.cust.phone)), from: s.from, ivuOn: s.ivuOn, pay: { method: s.pay, ref: cash ? '' : s.payRef.trim(), ...(recv ? { received: recv } : {}) }, disc: T0.disc, ...(T0.disc && s.discMode === '%' ? { discPct: num(s.disc) } : {}), note: s.note.trim(), sig: !!sigData,
+  const sale = { id: sid, no, ref, at, by: S.profile, foot: s.footOn === false ? '' : footSale(), cust: { ...s.cust }, ph: ph10(digits(s.cust.phone)), from: s.from, ivuOn: s.ivuOn, pay: { method: s.pay, ref: cash ? '' : s.payRef.trim(), ...(recv ? { received: recv } : {}) }, disc: T0.disc, ...(T0.disc && s.discMode === '%' ? { discPct: num(s.disc) } : {}), note: s.note.trim(), sig: !!sigData,
     lines: done.map(l => { const mf = mfrFor(l.it.brand); const prod = l.it.type === 'producto'; return { item: l.it.id, sku: l.it.sku || '', name: l.it.name, type: l.it.type, brand: l.it.brand || '', qty: r2(num(l.qty)), price: r2(num(l.price)), serial: (l.serial || '').trim(), warranty: prod ? (l.it.warranty || mf?.terms || '') : '', wphone: prod ? (l.it.wphone || mf?.phone || '') : '' }; }) };
   Object.assign(sale, saleCalc(sale));
   if (recv) sale.pay.change = r2(recv - sale.total);
@@ -3513,7 +3520,7 @@ ACT.saleDelete = async () => {
 /* ---------- Devoluciones ---------- */
 ACT.retOpen = () => {
   const v = S.saleView; if (!v || !guard()) return; const sale = v.sale;
-  S.ret = { sale, q: {}, bad: {}, method: sale.pay?.method === 'Crédito / factura' ? 'Crédito / factura' : (sale.pay?.method || 'Efectivo'), reason: 'Pieza equivocada', note: '' };
+  S.ret = { sale, q: {}, bad: {}, method: sale.pay?.method === 'Crédito / factura' ? 'Crédito / factura' : (sale.pay?.method || 'Efectivo'), reason: 'Pieza equivocada', note: '', footOn: sale.foot !== '' };
   pushModal(`<header class="sh-head"><div class="grow"><h3>Devolución de ${esc(sale.ref)}</h3><div class="small muted">${esc(fmtDateTime(sale.at))}${sale.cust?.name ? ' · ' + esc(sale.cust.name) : ''}</div></div>${closeBtn}</header>
   <div class="sh-body">
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Artículo</th><th class="n">Vendido</th><th class="n">Devolver</th><th>Estado</th></tr></thead><tbody>${(sale.lines || []).map((l, i) => { const left = retLeft(sale, i); return `<tr><td class="nm"><b>${esc(l.name)}</b><div class="small muted">${money(l.price)} c/u${num(sale.ret?.[i]) ? ` · ya devuelto ${fq(sale.ret[i])}` : ''}</div></td><td class="n">${fq(l.qty)}</td><td class="n">${left > 0 ? `<input class="inp" id="rt-q-${i}" inputmode="decimal" value="" placeholder="0" data-in="retQ" data-i="${i}" aria-label="Cantidad a devolver de ${esc(l.name)}" style="width:70px"><div class="small muted">máx. ${fq(left)}</div>` : '<span class="muted">—</span>'}</td><td>${left > 0 && l.item ? `<label class="chk small"><input type="checkbox" data-ch="retBad" data-i="${i}"> Defectuosa</label>` : ''}</td></tr>`; }).join('')}</tbody></table></div>
@@ -3522,6 +3529,7 @@ ACT.retOpen = () => {
       <label class="field"><span>Nota (opcional)</span><input class="inp" data-in="retF" data-f="note"></label></div>
     <h4>Se le devuelve en</h4><div class="pay-grid" role="group" aria-label="Se le devuelve en" id="rt-methods">${retMethodsHtml()}</div>
     <div id="rt-tot">${retTotalsHtml()}</div>
+    ${footChkHtml('rt-foot', 'data-ch="retFoot"', S.ret.footOn)}
   </div>
   <footer class="sh-foot"><button class="btn" type="button" data-act="closeModal">Cancelar</button><button class="btn primary" type="button" data-act="retGo" id="rt-go">Registrar devolución</button></footer>`, { wide: true, onClose: () => { S.ret = null; } });
 };
@@ -3536,6 +3544,7 @@ function retCalc(R) {
 const retTotalsHtml = () => { const t = retCalc(S.ret); return `<div class="totals" style="margin-left:auto"><span>Subtotal</span><span>${money(t.sub)}</span>${ivuRowsHtml(t.sub, t.ivu, t)}<span class="grand">A devolver</span><span class="grand">${money(t.total)}</span></div>`; };
 INP.retQ = el => { const R = S.ret; if (!R) return; R.q[el.dataset.i] = el.value; $('#rt-tot').innerHTML = retTotalsHtml(); };
 CHG.retBad = el => { const R = S.ret; if (R) R.bad[el.dataset.i] = el.checked; };
+CHG.retFoot = el => { const R = S.ret; if (R) R.footOn = el.checked; };
 INP.retF = CHG.retF = el => { const R = S.ret; if (R) R[el.dataset.f] = el.value; };
 ACT.retMethod = el => { const R = S.ret; if (!R) return; R.method = el.dataset.p; $('#rt-methods').innerHTML = retMethodsHtml(); };
 ACT.retGo = async () => {
@@ -3555,7 +3564,7 @@ ACT.retGo = async () => {
       done.push({ ...x, back });
     } catch (e) { fail = { x, e }; break; }
   }
-  const rec = { id: rid, kind: 'dev', no, ref, at, by: S.profile, foot: footSale(), of: sale.id, ofRef: sale.ref, cust: { ...(sale.cust || {}) }, ph: sale.ph || '', from, ivuOn: !!sale.ivuOn, pay: { method: R.method }, reason: R.reason, note: (R.note || '').trim(),
+  const rec = { id: rid, kind: 'dev', no, ref, at, by: S.profile, foot: R.footOn === false ? '' : footSale(), of: sale.id, ofRef: sale.ref, cust: { ...(sale.cust || {}) }, ph: sale.ph || '', from, ivuOn: !!sale.ivuOn, pay: { method: R.method }, reason: R.reason, note: (R.note || '').trim(),
     lines: done.map(x => ({ item: x.l.item, sku: x.l.sku || '', name: x.l.name, type: x.l.type || '', qty: x.q, price: r2(num(x.l.price) * t.factor), serial: x.l.serial || '', back: x.back })) };
   const sub = r2(sum(rec.lines, l => l.qty * l.price)); const ip = rec.ivuOn ? ivuParts(sub) : { st: 0, mu: 0, total: 0 };
   Object.assign(rec, { gross: -sub, disc: 0, sub: -sub, ivu: -ip.total, ivuSt: -ip.st, ivuMu: -ip.mu, total: -r2(sub + ip.total) });
@@ -4427,7 +4436,7 @@ async function boot(hot) {
    Las funciones con el mismo nombre que en los otros archivos los
    reemplazan (en JavaScript gana la última declaración).
    ===================================================================== */
-const APP_VERSION = '2026.11.23-2ce1bc';
+const APP_VERSION = '2026.11.23-9b00fb';
 const FB_CONFIG = window.FB_CONFIG || null;
 const PACK = 24;   // el inventario va en 24 documentos (inv/b0…b23), unos 150 artículos en cada uno
 const W = {
