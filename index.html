@@ -372,6 +372,12 @@ body.modal-open{overflow:hidden}
 .pos-change{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:8px 12px;border-radius:10px;background:var(--surface);border:1px solid var(--line)}
 .pos-change b{font-family:var(--font-display);font-weight:800;font-size:32px;font-variant-numeric:tabular-nums}
 .pos-more{align-self:flex-start}
+.pos-cust{flex:0 0 auto;display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.pos-cust-head{display:flex;align-items:center;gap:8px;min-height:36px;flex-wrap:wrap}
+.pos-cust-head .btn{margin:-6px -6px -6px 0}
+.pos-cust-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:8px}
+.pos-cust-ic{color:var(--muted);display:inline-flex}
+.pos-cust .grid3{gap:8px}
 .pos-disc{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:flex-end}
 .pos-disc .field{width:120px}
 .pos-disc .inp{min-height:44px;font-size:18px}
@@ -3044,7 +3050,7 @@ const moneyS = n => num(n) < 0 ? '−' + money(-num(n)) : money(n);
 ACT.newSale = () => openSale();
 function openSale(preset = {}) {
   if (!guard()) return;
-  S.sale = { from: 'alm', lines: [], cust: { name: '', phone: '', email: '', addr: '', mun: '' }, pay: 'Efectivo', payRef: '', recv: '', ivuOn: true, note: '', q: '', custOpen: false, noteOpen: false, resOpen: false, step: 'cart', disc: '', discMode: '$', discOpen: false };
+  S.sale = { from: 'alm', lines: [], cust: { name: '', phone: '', email: '', addr: '', mun: '' }, pay: 'Efectivo', payRef: '', recv: '', ivuOn: true, note: '', q: '', custMore: false, noteOpen: false, resOpen: false, step: 'cart', disc: '', discMode: '$', discOpen: false };
   if (preset.item) S.sale.lines.push(saleLine(preset.item));
   if (preset.cust) for (const k of Object.keys(S.sale.cust)) if (preset.cust[k]) S.sale.cust[k] = preset.cust[k];
   const s = S.sale;
@@ -3076,6 +3082,7 @@ function saleBody() {
     <div class="pos-search"><label class="search">${IC.search}<input class="inp" id="sl-q" type="search" placeholder="Número de pieza, nombre o código de barras" value="${esc(s.q)}" data-in="saleQ" autocomplete="off" enterkeyhint="enter" aria-label="Buscar para añadir a la venta"></label>
       <div id="sl-results" class="pos-res">${saleResultsHtml()}</div></div>
     <div id="sl-recent">${saleRecentHtml()}</div>
+    <div id="sl-custbox">${saleCustHtml()}</div>
     <div class="pos-lines" id="sl-lines">${saleLinesHtml()}</div>
     <div class="pos-tot" id="sl-totals">${saleTotalsHtml()}</div>
   </section>
@@ -3084,7 +3091,6 @@ function saleBody() {
       <div class="pos-pay-sum" id="sl-paysum">${salePaySumHtml()}</div>
       <div id="sl-paybox">${salePayHtml()}</div>
       <div id="sl-discbox">${saleDiscHtml()}</div>
-      <div id="sl-custbox">${saleCustHtml()}</div>
       <div id="sl-notebox">${saleNoteHtml()}</div>
       <section id="sl-sigsec" class="${hp ? '' : 'hidden'}"><h4>Firma del cliente</h4><canvas class="sig" id="sl-sig" aria-label="Área para que el cliente firme"></canvas><div><button class="btn sm" type="button" data-act="saleSigClear">Borrar firma</button></div></section>
     </div>
@@ -3144,16 +3150,24 @@ INP.saleDisc = el => { const s = S.sale; if (!s) return; s.disc = el.value; refr
 ACT.saleDiscMode = el => { const s = S.sale; if (!s) return; s.discMode = el.dataset.m; s.layer.querySelector('#sl-discbox').innerHTML = saleDiscHtml(); refreshSaleTotals(); };
 ACT.saleDiscSet = el => { const s = S.sale; if (!s) return; const v = num(el.dataset.v); s.disc = v ? String(v) : ''; s.discMode = '%'; s.discOpen = !!v; s.layer.querySelector('#sl-discbox').innerHTML = saleDiscHtml(); refreshSaleTotals(); };
 const saleGoLabel = () => { const s = S.sale; return s && s.lines.length ? `Cobrar ${money(saleCalc(s).total)}` : 'Registrar venta'; };
+// Cliente de la venta: teléfono y nombre a la vista (opcionales); email, dirección y municipio con "Más datos".
+// Es la misma lista de clientes de los servicios: el teléfono encuentra al cliente y su historial.
+const saleCustMore = s => !!(s.custMore || saleHasProd(s) || s.cust.email || s.cust.addr || s.cust.mun);
+const saleCustHint = hp => hp ? 'el nombre es necesario para la garantía' : 'opcional';
 function saleCustHtml() {
-  const s = S.sale; const c = s.cust; const hp = saleHasProd(s);
-  s.custShown = !!(s.custOpen || hp || c.name || c.phone);
-  if (!s.custShown) return `<button class="btn pos-more" type="button" data-act="saleCustOpen">${IC.plus} Cliente (opcional)</button>`;
-  return `<h4>Cliente <span class="muted small" id="sl-custhint">${hp ? 'necesario para la garantía' : 'opcional'}</span></h4>
-    <div class="grid2"><label class="field"><span>Teléfono</span><input class="inp" id="sl-phone" type="tel" inputmode="tel" value="${esc(c.phone)}" data-in="saleCust" data-f="phone" autocomplete="off"></label><label class="field"><span>Nombre</span><input class="inp" id="sl-name" value="${esc(c.name)}" data-in="saleCust" data-f="name" autocomplete="off"></label></div>
+  const s = S.sale; const c = s.cust; const hp = saleHasProd(s); const more = saleCustMore(s);
+  if (more) s.custMore = true; s.custShown = more;
+  return `<div class="pos-cust">
+    <div class="pos-cust-head"><span class="pos-cust-ic" aria-hidden="true">${IC.user}</span><b>Cliente</b><span class="small muted" id="sl-custhint">${saleCustHint(hp)}</span><span class="spacer"></span>${more ? '' : '<button class="btn sm ghost" type="button" data-act="saleCustMore">Más datos</button>'}</div>
+    <div class="pos-cust-row">
+      <input class="inp" id="sl-phone" type="tel" inputmode="tel" placeholder="Teléfono" aria-label="Teléfono del cliente" value="${esc(c.phone)}" data-in="saleCust" data-f="phone" autocomplete="off">
+      <input class="inp" id="sl-name" placeholder="Nombre" aria-label="Nombre del cliente" value="${esc(c.name)}" data-in="saleCust" data-f="name" autocomplete="off">
+    </div>
     <div id="sl-lookup"></div>
-    <div class="grid2"><label class="field"><span>Email</span><input class="inp" id="sl-email" type="email" value="${esc(c.email)}" data-in="saleCust" data-f="email"></label><label class="field"><span>Municipio</span><select class="inp" id="sl-mun" data-ch="saleCust" data-f="mun"><option value="">—</option>${MUNICIPIOS.map(([m]) => `<option ${c.mun === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select></label></div>
-    <label class="field"><span>Dirección</span><input class="inp" id="sl-addr" value="${esc(c.addr)}" data-in="saleCust" data-f="addr"></label>`;
+    ${more ? `<div class="grid3"><label class="field"><span>Email</span><input class="inp" id="sl-email" type="email" value="${esc(c.email)}" data-in="saleCust" data-f="email"></label><label class="field"><span>Dirección</span><input class="inp" id="sl-addr" value="${esc(c.addr)}" data-in="saleCust" data-f="addr"></label><label class="field"><span>Municipio</span><select class="inp" id="sl-mun" data-ch="saleCust" data-f="mun"><option value="">—</option>${MUNICIPIOS.map(([m]) => `<option ${c.mun === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select></label></div>` : ''}
+  </div>`;
 }
+ACT.saleCustMore = () => { const s = S.sale; if (!s) return; s.custMore = true; s.layer.querySelector('#sl-custbox').innerHTML = saleCustHtml(); s.layer.querySelector('#sl-email')?.focus(); };
 const saleNoteHtml = () => { const s = S.sale; return s.noteOpen || s.note ? `<label class="field"><span>Nota en la factura</span><input class="inp" id="sl-note" value="${esc(s.note)}" data-in="saleField" data-f="note"></label>` : `<button class="btn pos-more" type="button" data-act="saleNoteOpen">${IC.plus} Nota en la factura</button>`; };
 // Billetes que más se usan para pagar ese total.
 function saleBills(total) {
@@ -3192,8 +3206,8 @@ const refreshSale = () => {
   L.querySelector('#sl-lines').innerHTML = saleLinesHtml();
   refreshSaleTotals();
   const hp = saleHasProd(s);
-  if (!!(s.custOpen || hp || s.cust.name || s.cust.phone) !== s.custShown) L.querySelector('#sl-custbox').innerHTML = saleCustHtml();
-  const hint = L.querySelector('#sl-custhint'); if (hint) hint.textContent = hp ? 'necesario para la garantía' : 'opcional';
+  const cb = L.querySelector('#sl-custbox'); if (saleCustMore(s) !== s.custShown && !cb.contains(document.activeElement)) cb.innerHTML = saleCustHtml();
+  const ch = L.querySelector('#sl-custhint'); if (ch) ch.textContent = saleCustHint(hp);
   const sec = L.querySelector('#sl-sigsec');
   if (hp && sec.classList.contains('hidden')) { sec.classList.remove('hidden'); initSaleSig(); } else if (!hp) sec.classList.add('hidden');
   saleBillsRefresh();
@@ -3225,7 +3239,6 @@ function saleQKey(e) {
 INP.saleQ = el => { const s = S.sale; if (!s) return; s.q = el.value; s.resOpen = !!el.value.trim(); renderSaleResults(); };
 ACT.saleAddId = el => { const s = S.sale; const it = S.items.get(el.dataset.id); if (!s || !it) return; saleAddItem(it); saleClearQ(true); };
 ACT.saleQty = el => { const s = S.sale; const l = s?.lines[num(el.dataset.i)]; if (!l) return; const q = r2(num(l.qty) + num(el.dataset.d)); if (q <= 0) s.lines.splice(num(el.dataset.i), 1); else l.qty = String(q); refreshSale(); };
-ACT.saleCustOpen = () => { const s = S.sale; if (!s) return; s.custOpen = true; s.layer.querySelector('#sl-custbox').innerHTML = saleCustHtml(); s.layer.querySelector('#sl-phone')?.focus(); };
 ACT.saleNoteOpen = () => { const s = S.sale; if (!s) return; s.noteOpen = true; s.layer.querySelector('#sl-notebox').innerHTML = saleNoteHtml(); s.layer.querySelector('#sl-note')?.focus(); };
 ACT.salePay = el => { const s = S.sale; if (!s) return; s.pay = el.dataset.p; s.layer.querySelector('#sl-paybox').innerHTML = salePayHtml(); s.layer.querySelector(s.pay === 'Efectivo' ? '#sl-recv' : '#sl-ref')?.focus(); };
 INP.saleRecv = el => { const s = S.sale; if (!s) return; s.recv = el.value; const ch = s.layer.querySelector('#sl-change'); if (ch) ch.innerHTML = saleChangeHtml(); };
@@ -3234,6 +3247,7 @@ ACT.saleRecvSet = el => { const s = S.sale; if (!s) return; s.recv = String(num(
 ACT.saleStep = el => {
   const s = S.sale; if (!s) return;
   if (el.dataset.s === 'pay' && !s.lines.length) { toast('Añade al menos un artículo.', 'warn'); return; }
+  if (el.dataset.s === 'pay' && saleHasProd(s) && !s.cust.name.trim()) { toast('Para vender un equipo escribe el nombre del cliente; va en la garantía.', 'warn'); s.layer.querySelector('#sl-name')?.focus(); return; }
   s.step = el.dataset.s; const root = s.layer.querySelector('#sl-root'); root.dataset.step = s.step;
   s.layer.querySelector('.pos-back').hidden = s.step !== 'pay';
   s.layer.querySelector('.sheet').scrollTop = 0;
@@ -3257,7 +3271,7 @@ async function saleLookup(v) {
     box.innerHTML = `<div class="lookup"><b>${esc(s.found.name || 'Cliente')} ya es cliente</b><span class="small">${where}${arch.length ? `${where ? '<br>' : ''}${arch.length} ${arch.length === 1 ? 'servicio' : 'servicios'} en el registro · último: ${archLine(arch[0])}` : ''}</span><div><button class="btn sm primary" type="button" data-act="saleCustUse">${cs.exists ? 'Usar sus datos' : 'Usar su nombre'}</button></div></div>`;
   } catch (e) { console.warn(e); }
 }
-ACT.saleCustUse = () => { const s = S.sale; const f = s?.found; if (!f) return; for (const k of ['name', 'email', 'addr', 'mun']) if (f[k]) { s.cust[k] = f[k]; const el = s.layer.querySelector('#sl-' + k); if (el) el.value = f[k]; } toast('Datos del cliente copiados', 'ok'); };
+ACT.saleCustUse = () => { const s = S.sale; const f = s?.found; if (!f) return; for (const k of ['name', 'email', 'addr', 'mun']) if (f[k]) s.cust[k] = f[k]; const keep = s.layer.querySelector('#sl-lookup')?.innerHTML || ''; s.layer.querySelector('#sl-custbox').innerHTML = saleCustHtml(); s.layer.querySelector('#sl-lookup').innerHTML = keep; toast('Datos del cliente copiados', 'ok'); };
 ACT.saleAdd = async () => {
   const s = S.sale; if (!s) return;
   const it = await pickItemDlg({ title: 'Añadir a la venta', loc: s.from });
@@ -3271,7 +3285,7 @@ ACT.saleSubmit = async () => {
   if (!lines.length) { toast('Añade al menos un artículo.', 'warn'); return; }
   for (const l of lines) if (r2(num(l.qty)) <= 0) { toast(`Revisa la cantidad de ${l.it.name}.`, 'warn'); return; }
   const hp = lines.some(l => l.it.type === 'producto');
-  if (hp && !s.cust.name.trim()) { toast('Para vender un equipo escribe el nombre del cliente; va en la garantía.', 'warn'); return; }
+  if (hp && !s.cust.name.trim()) { toast('Para vender un equipo escribe el nombre del cliente; va en la garantía.', 'warn'); if (s.step === 'pay') ACT.saleStep({ dataset: { s: 'cart' } }); s.layer.querySelector('#sl-name')?.focus(); return; }
   const cash = s.pay === 'Efectivo'; const recv = cash && String(s.recv).trim() ? r2(num(s.recv)) : 0;
   if (recv && recv < saleCalc(s).total) { toast(`Lo recibido (${money(recv)}) no cubre el total (${money(saleCalc(s).total)}).`, 'warn'); return; }
   const short = lines.filter(l => isStocked(l.it) && qtyAt(l.it, s.from) < r2(num(l.qty)));
@@ -4404,7 +4418,7 @@ async function boot(hot) {
    Las funciones con el mismo nombre que en los otros archivos los
    reemplazan (en JavaScript gana la última declaración).
    ===================================================================== */
-const APP_VERSION = '2026.11.23-9facdc';
+const APP_VERSION = '2026.11.23-175e25';
 const FB_CONFIG = window.FB_CONFIG || null;
 const PACK = 24;   // el inventario va en 24 documentos (inv/b0…b23), unos 150 artículos en cada uno
 const W = {
