@@ -924,8 +924,9 @@ function toast(msg, kind = '') {
   const el = document.createElement('div');
   el.className = 'toast ' + kind; el.textContent = msg;
   $('#toast-root').appendChild(el);
-  setTimeout(() => el.classList.add('out'), kind === 'err' ? 5200 : 3200);
-  setTimeout(() => el.remove(), kind === 'err' ? 5700 : 3700);
+  const ms = kind === 'err' ? 5200 : Math.min(6500, Math.max(3200, 1800 + String(msg).length * 45)); // los avisos largos se quedan más
+  setTimeout(() => el.classList.add('out'), ms);
+  setTimeout(() => el.remove(), ms + 500);
 }
 let busyEl = null;
 function busy(label, p) {
@@ -1942,22 +1943,32 @@ async function doLookup(val) {
   const last = found[0];
   S.om.lookup = Object.fromEntries(found.map(o => [o.id, o]));
   if (custDoc) S.om.lookup['c:' + d] = { cust: custDoc };
-  if (!custDoc && !last) S.om.lookup['a:' + d] = { cust: { name: arch[0].name } };
-  const useId = custDoc ? 'c:' + d : last ? last.id : 'a:' + d;
+  // Lo más completo: lo de la última orden con lo más nuevo de la ficha del cliente encima (sin borrar con vacíos).
+  if (custDoc || last) S.om.lookup['m:' + d] = { cust: { ...(last?.cust || {}), ...Object.fromEntries(Object.entries(custDoc || {}).filter(([, v]) => v)) } };
+  else S.om.lookup['a:' + d] = { cust: { name: arch[0].name }, arch: true };
+  const useId = custDoc || last ? 'm:' + d : 'a:' + d;
   const nm = (custDoc || last?.cust || {}).name || arch[0]?.name || 'Cliente';
   const lines = [];
   if (found.length) lines.push(`${found.length} ${found.length === 1 ? 'servicio anterior' : 'servicios anteriores'} · último: #${esc(last.no)}, ${esc(applLabel(last))}, ${esc(STATUS[last.status]?.label || '')}`);
   else if (custDoc) lines.push(esc([custDoc.addr, custDoc.mun].filter(Boolean).join(', ') || 'Registrado en clientes'));
   if (arch.length) lines.push(`${arch.length} ${arch.length === 1 ? 'servicio' : 'servicios'} en el registro · último: ${archLine(arch[0])}`);
+  if (!custDoc && !last) lines.push('<i>El registro viejo solo trae nombre, fecha, factura, monto y técnico: no tiene la dirección. Escríbela esta vez y la próxima llamada se llena sola.</i>');
   box.innerHTML = `<div class="lookup"><b>${esc(nm)} ya es cliente</b><span class="small">${lines.join('<br>')}</span>
     <div class="row-wrap"><button class="btn sm primary" type="button" data-act="useCust" data-id="${esc(useId)}">${custDoc || last ? 'Usar sus datos' : 'Usar su nombre'}</button>${last ? `<button class="btn sm" type="button" data-act="useAppl" data-id="${esc(last.id)}">Mismo equipo (${esc(applLabel(last))})</button>` : ''}</div>
     <details><summary class="small">Ver historial</summary>${found.length ? `<ul class="hist">${found.slice(0, 15).map(o => `<li><span class="muted">${esc(fmtShort(ymd(new Date(o.created))))}</span><span>#${esc(o.no)} ${esc(applLabel(o))} — ${esc(trunc(o.problem, 60))} ${pill(o.status)}</span></li>`).join('')}</ul>` : ''}${arch.length ? `<p class="small muted">Registro de servicios anteriores:</p>${archHistHtml(arch, 15)}` : ''}</details></div>`;
 }
+// Dice qué se copió y avisa si falta la dirección (el registro viejo no la tiene).
+function custCopyToast(got, c, arch) {
+  if (!got.length) { toast('Este cliente no tiene datos guardados para copiar.', 'warn'); return true; }
+  const miss = !c.addr;
+  toast(`Copiado: ${joinY(got)}.${miss ? (arch ? ' El registro viejo no tiene la dirección: escríbela y quedará guardada.' : ' No tenía dirección guardada: escríbela y quedará guardada.') : ''}`, miss ? 'warn' : 'ok');
+  return miss;
+}
 ACT.useCust = el => {
-  const o = S.om?.lookup?.[el.dataset.id]; if (!o) return; const c = o.cust || {}; const L = S.om.layer;
-  const set = (id, v) => { const x = L.querySelector('#' + id); if (x && v != null) x.value = v; };
-  set('o-name', c.name); set('o-phone2', c.phone2); set('o-addr', c.addr); set('o-mun', c.mun); set('o-ref', c.ref); set('o-maps', c.maps);
-  toast('Datos del cliente copiados', 'ok');
+  const o = S.om?.lookup?.[el.dataset.id]; if (!o) return; const c = o.cust || {}; const L = S.om.layer; const got = [];
+  const set = (id, v, what) => { const x = L.querySelector('#' + id); if (x && v) { x.value = v; got.push(what); if (x.tagName === 'SELECT') x.dispatchEvent(new Event('change', { bubbles: true })); } };
+  set('o-name', c.name, 'nombre'); set('o-phone2', c.phone2, 'otro teléfono'); set('o-addr', c.addr, 'dirección'); set('o-mun', c.mun, 'municipio'); set('o-ref', c.ref, 'punto de referencia'); set('o-maps', c.maps, 'ubicación');
+  if (custCopyToast(got, c, o.arch)) L.querySelector('#o-addr')?.focus();
 };
 ACT.useAppl = el => {
   const o = S.om?.lookup?.[el.dataset.id]; if (!o) return; const a = o.appl || {}; const L = S.om.layer;
@@ -3339,12 +3350,12 @@ async function saleLookup(v) {
     const arch = await archFor(d);
     if (S.sale !== s || !box.isConnected) return;
     if (!cs.exists && !arch.length) { box.innerHTML = '<p class="small muted">Cliente nuevo: se guardará al registrar la venta.</p>'; return; }
-    s.found = cs.exists ? cs.data() : { name: arch[0].name };
+    s.found = cs.exists ? cs.data() : { name: arch[0].name, arch: true };
     const where = esc([s.found.addr, s.found.mun].filter(Boolean).join(', '));
     box.innerHTML = `<div class="lookup"><b>${esc(s.found.name || 'Cliente')} ya es cliente</b><span class="small">${where}${arch.length ? `${where ? '<br>' : ''}${arch.length} ${arch.length === 1 ? 'servicio' : 'servicios'} en el registro · último: ${archLine(arch[0])}` : ''}</span><div><button class="btn sm primary" type="button" data-act="saleCustUse">${cs.exists ? 'Usar sus datos' : 'Usar su nombre'}</button></div></div>`;
   } catch (e) { console.warn(e); }
 }
-ACT.saleCustUse = () => { const s = S.sale; const f = s?.found; if (!f) return; for (const k of ['name', 'email', 'addr', 'mun']) if (f[k]) s.cust[k] = f[k]; const keep = s.layer.querySelector('#sl-lookup')?.innerHTML || ''; s.layer.querySelector('#sl-custbox').innerHTML = saleCustHtml(); s.layer.querySelector('#sl-lookup').innerHTML = keep; toast('Datos del cliente copiados', 'ok'); };
+ACT.saleCustUse = () => { const s = S.sale; const f = s?.found; if (!f) return; const got = []; for (const [k, w] of [['name', 'nombre'], ['email', 'email'], ['addr', 'dirección'], ['mun', 'municipio']]) if (f[k]) { s.cust[k] = f[k]; got.push(w); } const keep = s.layer.querySelector('#sl-lookup')?.innerHTML || ''; s.layer.querySelector('#sl-custbox').innerHTML = saleCustHtml(); s.layer.querySelector('#sl-lookup').innerHTML = keep; custCopyToast(got, f, f.arch); };
 ACT.saleAdd = async () => {
   const s = S.sale; if (!s) return;
   const it = await pickItemDlg({ title: 'Añadir a la venta', loc: s.from });
@@ -4552,7 +4563,7 @@ async function boot(hot) {
    Las funciones con el mismo nombre que en los otros archivos los
    reemplazan (en JavaScript gana la última declaración).
    ===================================================================== */
-const APP_VERSION = '2026.11.23-ae4dd6';
+const APP_VERSION = '2026.11.24-108df6';
 const FB_CONFIG = window.FB_CONFIG || null;
 const PACK = 24;   // el inventario va en 24 documentos (inv/b0…b23), unos 150 artículos en cada uno
 const W = {
