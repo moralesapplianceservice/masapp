@@ -664,18 +664,34 @@ const footSale = () => String(cfg().saleFoot ?? biz().note ?? '');
 const LOGO_FILES = { light: 'img/logo-claro.jpg', dark: 'img/logo-oscuro.jpg' };
 const logoOpts = () => ({ app: true, docs: true, info: true, ...(S.cfg?.logo || {}) });
 const logoOn = k => S.cfg ? logoOpts()[k] !== false : (k === 'app' ? lsGet('logoApp') !== '0' : true);
-const logoAbs = k => new URL(LOGO_FILES[k], document.baseURI).href;
+// La oficina puede subir su propio logo (Ajustes > Logo): se guarda en config/logo y se ve en todos los equipos.
+// Hasta que llegue de la base de datos (o en la pantalla de entrada) se usa la copia guardada en el equipo.
+const logoSrc = k => (S.logoReady ? S.logo?.[k] : lsGet(k === 'light' ? 'logoL' : 'logoD')) || LOGO_FILES[k];
+const logoAbs = k => { const s = logoSrc(k); return s.startsWith('data:') ? s : new URL(s, document.baseURI).href; };
 const docLogo = () => logoOn('docs') ? logoAbs('light') : null;
+function setLogoDoc(d) {
+  S.logo = d && (d.light || d.dark) ? { light: d.light || null, dark: d.dark || null } : null; S.logoReady = true;
+  for (const [k, ls] of [['light', 'logoL'], ['dark', 'logoD']]) { const v = S.logo?.[k] || null; if (lsGet(ls) !== v) lsSet(ls, v); }
+  schedule();
+}
+async function saveLogoDoc(patch) {
+  const ref = S.db.doc('config/logo'); const s = await call(() => ref.get());
+  if (s.exists) await call(() => ref.update(patch)); else await call(() => ref.set(patch));
+}
 let LOGO_DATA = null;
-// Para los PDF hace falta la imagen en sí (no un enlace); se baja una vez y se guarda en memoria.
+// Para los PDF hace falta la imagen en sí (no un enlace); se prepara una vez por logo y se guarda en memoria.
 async function logoData() {
-  if (LOGO_DATA) return LOGO_DATA;
+  const src = logoAbs('light');
+  if (LOGO_DATA?.src === src) return LOGO_DATA;
   try {
-    const r = await fetch(logoAbs('light')); if (!r.ok) throw new Error('HTTP ' + r.status);
-    const blob = await r.blob();
-    const url = await new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = () => no(fr.error); fr.readAsDataURL(blob); });
+    let url = src;
+    if (!src.startsWith('data:')) {
+      const r = await fetch(src); if (!r.ok) throw new Error('HTTP ' + r.status);
+      const blob = await r.blob();
+      url = await new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = () => no(fr.error); fr.readAsDataURL(blob); });
+    }
     const im = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(new Error('imagen')); i.src = url; });
-    LOGO_DATA = { url, fmt: /^data:image\/png/i.test(url) ? 'PNG' : 'JPEG', ratio: im.naturalWidth / im.naturalHeight };
+    LOGO_DATA = { src, url, fmt: /^data:image\/png/i.test(url) ? 'PNG' : 'JPEG', ratio: im.naturalWidth / im.naturalHeight };
     return LOGO_DATA;
   } catch (e) { console.info('logo', e); return null; }
 }
@@ -946,6 +962,7 @@ function subscribe() {
   loadTimer = setTimeout(() => { if (!allReady() && S.conn !== 'error') { S.conn = 'slow'; schedule(); } }, 10000);
   const fresh = m => { if (!m.fromCache && S.conn !== 'ok' && allReady()) { S.conn = 'ok'; clearTimeout(loadTimer); } };
   db.doc('config/main').onSnapshot(s => { S.cfg = s.exists ? s.data() : null; S.ready.cfg = true; autoProfile(); fresh(s.metadata); schedule(); }, onErr('config'));
+  db.doc('config/logo').onSnapshot(s => setLogoDoc(s.exists ? s.data() : null), e => { console.info('logo', e); S.logoReady = true; });
   subscribeInv(db, fresh, onErr);
   const intoMap = map => qs => {
     for (const ch of qs.docChanges()) {
@@ -3896,18 +3913,23 @@ function vMas() {
 }
 
 /* ---------- Logo del negocio: arriba en la app y en los recibos y facturas ---------- */
+const brandSrc = { light: '', dark: '' };
 function brandLogo() {
   const on = logoOn('app'); if (S.cfg) lsSet('logoApp', on ? '1' : '0');
-  document.querySelector('.topbar .brand')?.classList.toggle('has-logo', on);
+  const br = document.querySelector('.topbar .brand'); if (!br) return;
+  br.classList.toggle('has-logo', on);
+  if (on) for (const [k, sel] of [['light', '.logo-l'], ['dark', '.logo-d']]) { const src = logoSrc(k); if (brandSrc[k] !== src) { brandSrc[k] = src; br.querySelector(sel)?.setAttribute('src', src); } }
 }
+const LOGO_KINDS = { light: { t: 'Fondo claro', where: 'los recibos, las facturas y la app de día' }, dark: { t: 'Fondo oscuro', where: 'la app en modo oscuro' } };
 function logoCard() {
   const o = logoOpts(); const ck = (k, t) => `<label class="chk"><input type="checkbox" data-ch="logoOpt" data-k="${k}" ${o[k] !== false ? 'checked' : ''}> ${t}</label>`;
+  const fig = k => `<figure class="${k === 'dark' ? 'dk' : ''}"><img src="${esc(logoSrc(k))}" alt="Logo para ${LOGO_KINDS[k].t.toLowerCase()}">
+      <figcaption class="small muted">${LOGO_KINDS[k].t}: ${LOGO_KINDS[k].where}${S.logo?.[k] ? ' · subido por la oficina' : ''}</figcaption>
+      <div class="row-wrap"><label class="btn sm">${IC.plus} Subir otro<input type="file" accept="image/png,image/jpeg,image/webp" hidden data-ch="logoFile" data-k="${k}"></label>${S.logo?.[k] ? `<button class="btn sm ghost" type="button" data-act="logoReset" data-k="${k}">Volver al original</button>` : ''}</div></figure>`;
   return `<section class="card" id="logo-card">
     <h3>Logo</h3>
-    <div class="logo-prev">
-      <figure><img src="${esc(LOGO_FILES.light)}" alt="Logo para fondo claro"><figcaption class="small muted">Fondo claro: recibos, facturas y la app de día</figcaption></figure>
-      <figure class="dk"><img src="${esc(LOGO_FILES.dark)}" alt="Logo para fondo oscuro"><figcaption class="small muted">Fondo oscuro: la app en modo oscuro</figcaption></figure>
-    </div>
+    <div class="logo-prev">${fig('light')}${fig('dark')}</div>
+    <p class="small muted">Sube el archivo original del diseñador (PNG o JPG) para que salga nítido. Si tiene fondo transparente, se pone sobre blanco o sobre negro según dónde se vea. El cambio llega a todos los equipos.</p>
     ${ck('app', 'Mostrarlo arriba en la app y en la pantalla de entrada')}
     ${ck('docs', 'Ponerlo en los recibos y las facturas')}
     ${ck('info', 'El logo ya trae la dirección y los teléfonos (no repetirlos en los recibos)')}
@@ -3916,6 +3938,36 @@ function logoCard() {
 CHG.logoOpt = async el => {
   const o = { ...logoOpts(), [el.dataset.k]: el.checked };
   if (await run('Guardando…', () => saveCfg({ logo: o }))) toast('Logo: cambio guardado', 'ok');
+};
+// La imagen se achica a un tamaño que pesa poco y se guarda como JPG sobre el color de fondo donde se verá.
+async function logoFromFile(file, kind) {
+  const obj = URL.createObjectURL(file);
+  try {
+    const im = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(new Error('No se pudo abrir esa imagen. Usa un archivo PNG o JPG.')); i.src = obj; });
+    const W0 = im.naturalWidth, H0 = im.naturalHeight; if (!W0 || !H0) throw new Error('La imagen está vacía.');
+    let out = '';
+    for (const max of [1400, 1100, 800]) {
+      const sc = Math.min(1, max / W0, (max / 2) / H0); const w = Math.max(1, Math.round(W0 * sc)), h = Math.max(1, Math.round(H0 * sc));
+      const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d');
+      g.fillStyle = kind === 'dark' ? '#000000' : '#FFFFFF'; g.fillRect(0, 0, w, h); g.drawImage(im, 0, 0, w, h);
+      for (const q of [0.92, 0.85, 0.75]) { out = c.toDataURL('image/jpeg', q); if (out.length <= 420000) return { url: out, w: W0, h: H0 }; }
+    }
+    throw new Error('La imagen pesa demasiado. Prueba con una versión más pequeña.');
+  } finally { URL.revokeObjectURL(obj); }
+}
+CHG.logoFile = async el => {
+  const f = el.files?.[0]; const k = el.dataset.k; el.value = ''; if (!f || !LOGO_KINDS[k]) return;
+  let r = null; busy('Preparando el logo…');
+  try { r = await logoFromFile(f, k); } catch (e) { toast(e.message || 'No se pudo abrir esa imagen.', 'err'); } finally { busy(null); }
+  if (!r) return;
+  const small = r.w < 600 ? `<p class="small">La imagen es pequeña (${r.w} px de ancho) y puede verse borrosa en los recibos. Si tienen el archivo original del diseñador, mejor ese.</p>` : '';
+  const ok = await confirmDlg(`Logo para ${LOGO_KINDS[k].t.toLowerCase()}`, `<div class="logo-prev"><figure class="${k === 'dark' ? 'dk' : ''}"><img src="${r.url}" alt="Vista del logo nuevo"></figure></div>${small}<p class="small muted">Se verá en ${LOGO_KINDS[k].where}, en todos los equipos.</p>`, 'Usar este logo');
+  if (ok && await run('Guardando el logo…', () => saveLogoDoc({ [k]: r.url, [k + 'At']: nowIso(), [k + 'By']: S.profile || '' }))) toast('Logo guardado', 'ok');
+};
+ACT.logoReset = async el => {
+  const k = el.dataset.k; if (!LOGO_KINDS[k]) return;
+  if (!(await confirmDlg('Volver al logo original', `<p>Se quita el logo para ${LOGO_KINDS[k].t.toLowerCase()} que se subió y vuelve el que trae la app.</p>`, 'Volver al original'))) return;
+  if (await run('Guardando…', () => saveLogoDoc({ [k]: null }))) toast('Listo: volvió el logo original', 'ok');
 };
 
 /* ---------- Ajustes: tarifas de visita y garantías de fábrica ---------- */
@@ -4500,7 +4552,7 @@ async function boot(hot) {
    Las funciones con el mismo nombre que en los otros archivos los
    reemplazan (en JavaScript gana la última declaración).
    ===================================================================== */
-const APP_VERSION = '2026.11.23-885fe2';
+const APP_VERSION = '2026.11.23-ae4dd6';
 const FB_CONFIG = window.FB_CONFIG || null;
 const PACK = 24;   // el inventario va en 24 documentos (inv/b0…b23), unos 150 artículos en cada uno
 const W = {
@@ -4926,7 +4978,7 @@ function authHtml() {
   const m = f.mode;
   const title = m === 'signup' ? 'Crear tu cuenta' : m === 'reset' ? 'Cambiar la contraseña' : 'Entrar';
   return `<div class="auth"><div class="card auth-card">
-    <div class="auth-brand">${logoOn('app') ? `<span class="auth-logo"><img class="logo-l" src="${esc(LOGO_FILES.light)}" alt="${esc(bizNameCached())}"><img class="logo-d" src="${esc(LOGO_FILES.dark)}" alt="${esc(bizNameCached())}"></span>` : `<b>${esc(bizNameCached())}</b>`}<span class="small muted">Servicio · Piezas · Rutas</span></div>
+    <div class="auth-brand">${logoOn('app') ? `<span class="auth-logo"><img class="logo-l" src="${esc(logoSrc('light'))}" alt="${esc(bizNameCached())}"><img class="logo-d" src="${esc(logoSrc('dark'))}" alt="${esc(bizNameCached())}"></span>` : `<b>${esc(bizNameCached())}</b>`}<span class="small muted">Servicio · Piezas · Rutas</span></div>
     <h2>${title}</h2>
     ${W.msg ? `<div class="banner ${W.msgKind === 'ok' ? 'good' : ''}">${esc(W.msg)}</div>` : ''}
     ${m === 'reset' ? '<p class="small">Escribe el email de tu cuenta y te enviamos un enlace para escoger una contraseña nueva.</p>' : ''}
