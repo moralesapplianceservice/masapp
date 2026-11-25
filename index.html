@@ -394,6 +394,12 @@ body.modal-open{overflow:hidden}
 .pos-cust-ic{color:var(--muted);display:inline-flex}
 .pos-cust .grid3{gap:8px}
 .foot-chk{align-items:flex-start;padding:4px 0}
+.pos-when-row{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.pos-when{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--line);border-radius:12px}
+.pos-when.back{border-color:#B45309;background:color-mix(in srgb,#F59E0B 12%,var(--surface))}
+.pos-when-f{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}
+.pos-when-f .field{flex:1 1 140px;min-width:0}
+.pos-when p{margin:0}
 .cnt-place .toolbar{align-items:flex-end}
 .cnt-place .field{min-width:180px}
 .cnt-nav{margin-left:auto}
@@ -885,7 +891,7 @@ async function upsertCustomer(c, hist) {
   catch (e) { if (e?.code !== 'invalid_argument') throw e; await call(() => ref.set({ ...data, created: nowIso() })); }
 }
 function mkMove(k, it, qty, o = {}) {
-  return { id: o.id || uid(12), at: nowIso(), by: S.profile, k, item: it?.id || o.item || '', sku: it?.sku || '', name: it?.name || o.name || '', qty: r2(qty), from: o.from || null, to: o.to || null, ref: o.ref || null, price: o.price ?? null, cost: o.cost != null ? o.cost : (it ? num(it.cost) : null), note: o.note || '' };
+  return { id: o.id || uid(12), at: o.at || nowIso(), by: S.profile, k, item: it?.id || o.item || '', sku: it?.sku || '', name: it?.name || o.name || '', qty: r2(qty), from: o.from || null, to: o.to || null, ref: o.ref || null, price: o.price ?? null, cost: o.cost != null ? o.cost : (it ? num(it.cost) : null), note: o.note || '' };
 }
 async function nextNo(field, start) {
   const ref = S.db.doc('meta/counter');
@@ -3254,7 +3260,7 @@ async function serviceInvoicePdf(o) {
 async function saleInvoicePdf(s, sig) {
   const J = await loadJsPDF(); const P = new Pdf(J); const c = s.cust || {};
   const rt = s.kind === 'dev';
-  pdfHead(P, rt ? 'DEVOLUCIÓN' : 'FACTURA DE VENTA', s.ref, fmtDateTime(s.at), logoOn('docs') ? await logoData() : null);
+  pdfHead(P, rt ? 'DEVOLUCIÓN' : 'FACTURA DE VENTA', s.ref, [fmtDateTime(s.at), backTxt(s)].filter(Boolean).join(' · '), logoOn('docs') ? await logoData() : null);
   if (rt) P.text(`Factura original ${s.ofRef}${s.reason ? ' · ' + s.reason : ''}`, { gap: 8 });
   if (c.name || c.phone) { P.label('Cliente'); P.text(c.name || '', { size: 10.5, bold: true, gap: 1 }); P.text([fmtPhone(c.phone), c.email].filter(Boolean).join(' · '), { gap: 1 }); P.text([c.addr, c.mun].filter(Boolean).join(', '), { gap: 8 }); }
   P.table(PDF_COLS, (s.lines || []).map(l => ({ cells: [fq(l.qty), l.sku || '', l.name + (l.serial ? ` · Serie ${l.serial}` : ''), money(l.price), money(num(l.qty) * num(l.price))] })));
@@ -3324,7 +3330,7 @@ const moneyS = n => num(n) < 0 ? '−' + money(-num(n)) : money(n);
 ACT.newSale = () => openSale();
 function openSale(preset = {}) {
   if (!guard()) return;
-  S.sale = { from: 'alm', lines: [], cust: { name: '', phone: '', email: '', addr: '', mun: '' }, pay: 'Efectivo', payRef: '', recv: '', ivuOn: true, note: '', q: '', custMore: false, footOn: true, noteOpen: false, resOpen: false, step: 'cart', disc: '', discMode: '$', discOpen: false };
+  S.sale = { from: 'alm', lines: [], cust: { name: '', phone: '', email: '', addr: '', mun: '' }, pay: 'Efectivo', payRef: '', recv: '', ivuOn: true, note: '', q: '', custMore: false, footOn: true, when: '', whenT: '12:00', whenOpen: false, whenStock: null, paperNo: '', noteOpen: false, resOpen: false, step: 'cart', disc: '', discMode: '$', discOpen: false };
   if (preset.item) S.sale.lines.push(saleLine(preset.item));
   if (preset.cust) for (const k of Object.keys(S.sale.cust)) if (preset.cust[k]) S.sale.cust[k] = preset.cust[k];
   const s = S.sale;
@@ -3363,6 +3369,7 @@ function saleBody() {
   <section class="pos-right">
     <div class="pos-pay-scroll">
       <div class="pos-pay-sum" id="sl-paysum">${salePaySumHtml()}</div>
+      ${canBackdate() ? `<div id="sl-whenbox">${saleWhenHtml()}</div>` : ''}
       <div id="sl-paybox">${salePayHtml()}</div>
       <div id="sl-discbox">${saleDiscHtml()}</div>
       <div id="sl-notebox">${saleNoteHtml()}</div>
@@ -3424,7 +3431,38 @@ ACT.saleDiscOpen = () => { const s = S.sale; if (!s) return; s.discOpen = true; 
 INP.saleDisc = el => { const s = S.sale; if (!s) return; s.disc = el.value; refreshSaleTotals(); };
 ACT.saleDiscMode = el => { const s = S.sale; if (!s) return; s.discMode = el.dataset.m; s.layer.querySelector('#sl-discbox').innerHTML = saleDiscHtml(); refreshSaleTotals(); };
 ACT.saleDiscSet = el => { const s = S.sale; if (!s) return; const v = num(el.dataset.v); s.disc = v ? String(v) : ''; s.discMode = '%'; s.discOpen = !!v; s.layer.querySelector('#sl-discbox').innerHTML = saleDiscHtml(); refreshSaleTotals(); };
-const saleGoLabel = () => { const s = S.sale; return s && s.lines.length ? `Cobrar ${money(saleCalc(s).total)}` : 'Registrar venta'; };
+const saleGoLabel = () => { const s = S.sale; return s && s.when ? `Registrar venta del ${fmtShort(s.when)}${s.lines.length ? ' · ' + money(saleCalc(s).total) : ''}` : s && s.lines.length ? `Cobrar ${money(saleCalc(s).total)}` : 'Registrar venta'; };
+/* ---------- Venta con fecha pasada (solo administrador): cuenta en las ventas, el IVU y los reportes de ese día ---------- */
+const dayTxt = d => fmtDay(d).replace(/^./, c => c.toLowerCase());
+const backTxt = x => x?.back ? [`Registrada el ${fmtDateY(ymd(new Date(x.rec || x.at)))}`, x.paperNo ? `factura en papel ${x.paperNo}` : ''].filter(Boolean).join(' · ') : '';
+function canBackdate() { return isOffice(); }
+// ¿Se rebaja del inventario? Por omisión sí, menos para ventas de antes de empezar con la app (el inventario cargado ya las refleja).
+const saleWhenStock = s => s.whenStock ?? !(s.when && s.when < appStartDay());
+function saleWhenHtml() {
+  const s = S.sale;
+  if (!s.when && !s.whenOpen) return `<div class="pos-when-row"><span class="small muted">Fecha de la venta: <b>hoy</b></span><button class="btn sm ghost" type="button" data-act="saleWhenOpen">Cambiar fecha</button></div>`;
+  const mo = s.when && s.when.slice(0, 7) < ymd().slice(0, 7) ? MES[+s.when.slice(5, 7) - 1] : '';
+  return `<div class="pos-when ${s.when ? 'back' : ''}">
+    <div class="pos-when-f"><label class="field"><span>Fecha de la venta</span><input class="inp" type="date" id="sl-when" max="${ymd()}" value="${esc(s.when || ymd())}" data-ch="saleWhen"></label>
+      ${s.when ? `<label class="field"><span>Hora</span><input class="inp" type="time" id="sl-whenT" value="${esc(s.whenT)}" data-ch="saleWhenT"></label>` : ''}
+      <button class="btn sm" type="button" data-act="saleWhenToday">${s.when ? 'Volver a hoy' : 'Cerrar'}</button></div>
+    ${s.when ? `<p class="small">Venta con fecha pasada: cuenta en las ventas, el IVU y los reportes del <b>${esc(dayTxt(s.when))}</b>.${mo ? ` Cambia los reportes de <b>${esc(mo)}</b>.` : ''}</p>
+    <label class="chk"><input type="checkbox" id="sl-whenstock" data-ch="saleWhenStock" ${saleWhenStock(s) ? 'checked' : ''}> Rebajar estos artículos del inventario hoy</label>
+    <p class="small muted">${s.when < appStartDay() ? 'Es de antes de empezar con la app: el inventario que se cargó ya no los tiene, así que normalmente no se rebajan.' : 'Quítalo si ya salieron del inventario por un conteo o un ajuste.'}</p>
+    <label class="field"><span>Número de la factura en papel (si tiene)</span><input class="inp" id="sl-paper" value="${esc(s.paperNo)}" data-in="salePaper" autocomplete="off"></label>` : ''}
+  </div>`;
+}
+const refreshWhen = () => { const s = S.sale; const b = s?.layer.querySelector('#sl-whenbox'); if (b) b.innerHTML = saleWhenHtml(); const g = s?.layer.querySelector('#sl-go'); if (g) g.textContent = saleGoLabel(); };
+ACT.saleWhenOpen = () => { const s = S.sale; if (!s) return; s.whenOpen = true; refreshWhen(); s.layer.querySelector('#sl-when')?.focus(); };
+ACT.saleWhenToday = () => { const s = S.sale; if (!s) return; s.when = ''; s.whenOpen = false; s.whenStock = null; refreshWhen(); };
+CHG.saleWhen = el => {
+  const s = S.sale; if (!s) return; const v = el.value;
+  if (v && v > ymd()) { toast('La fecha no puede ser después de hoy.', 'warn'); el.value = s.when || ymd(); return; }
+  s.when = v && v < ymd() ? v : ''; s.whenStock = null; refreshWhen();
+};
+CHG.saleWhenT = el => { const s = S.sale; if (s) s.whenT = el.value || '12:00'; };
+CHG.saleWhenStock = el => { const s = S.sale; if (s) s.whenStock = el.checked; };
+INP.salePaper = el => { const s = S.sale; if (s) s.paperNo = el.value; };
 // Cliente de la venta: teléfono y nombre a la vista (opcionales); email, dirección y municipio con "Más datos".
 // Es la misma lista de clientes de los servicios: el teléfono encuentra al cliente y su historial.
 const saleCustMore = s => !!(s.custMore || saleHasProd(s) || s.cust.email || s.cust.addr || s.cust.mun);
@@ -3565,23 +3603,31 @@ ACT.saleSubmit = async () => {
   if (hp && !s.cust.name.trim()) { toast('Para vender un equipo escribe el nombre del cliente; va en la garantía.', 'warn'); if (s.step === 'pay') ACT.saleStep({ dataset: { s: 'cart' } }); s.layer.querySelector('#sl-name')?.focus(); return; }
   const cash = s.pay === 'Efectivo'; const recv = cash && String(s.recv).trim() ? r2(num(s.recv)) : 0;
   if (recv && recv < saleCalc(s).total) { toast(`Lo recibido (${money(recv)}) no cubre el total (${money(saleCalc(s).total)}).`, 'warn'); return; }
-  const short = lines.filter(l => isStocked(l.it) && qtyAt(l.it, s.from) < r2(num(l.qty)));
+  const back = canBackdate() && !!s.when && s.when < ymd(); const deduct = !back || saleWhenStock(s);
+  const at = back ? new Date(`${s.when}T${s.whenT || '12:00'}:00`).toISOString() : nowIso();
+  if (back) {
+    const mo = s.when.slice(0, 7) < ymd().slice(0, 7) ? MES[+s.when.slice(5, 7) - 1] : '';
+    if (!(await confirmDlg('Venta con fecha pasada', `<p>Se registra con fecha del <b>${esc(dayTxt(s.when))}</b>, ${esc(fmtTime(at))}, y cuenta en las ventas, el IVU y los reportes de ese día.</p>${mo ? `<p>Cambia los reportes de <b>${esc(mo)}</b>; si ya usaron ese mes para la planilla del IVU, tenlo en cuenta.</p>` : ''}<p>${deduct ? 'Los artículos se rebajan del inventario hoy.' : '<b>No</b> se toca el inventario.'}</p>`, 'Registrar'))) return;
+  }
+  const short = deduct ? lines.filter(l => isStocked(l.it) && qtyAt(l.it, s.from) < r2(num(l.qty))) : [];
   if (short.length && !(await confirmDlg('Existencia insuficiente', `<p>El sistema no tiene suficiente en ${esc(locName(s.from))} de: ${short.map(x => '<b>' + esc(x.it.name) + '</b>').join(', ')}.</p><p class="small muted">Si de verdad lo tienes, continúa y corrígelo luego con un conteo.</p>`, 'Continuar'))) return;
   const T0 = saleCalc(s); const factor = T0.gross ? T0.sub / T0.gross : 1;
   busy('Registrando la venta…');
   let no;
   try { no = await nextNo('sale', 1000); } catch (e) { busy(null); toast(errMsg(e), 'err'); return; }
-  const sid = uid(12), at = nowIso(), ref = 'V-' + no; const moves = [], done = []; let fail = null;
+  const sid = uid(12), ref = 'V-' + no; const moves = [], done = []; let fail = null;
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i]; const q = r2(num(l.qty)); const mid = uid(12);
     busy(`Registrando la venta: ${i + 1} de ${lines.length}`, i / lines.length);
-    try { if (isStocked(l.it)) await applyStock(l.it.id, { [s.from]: -q }, mid); moves.push(mkMove('venta', l.it, q, { id: mid, from: isStocked(l.it) ? s.from : null, ref, price: r2(num(l.price) * factor), note: s.cust.name ? 'Cliente: ' + s.cust.name : '' })); done.push(l); }
+    const stk = deduct && isStocked(l.it);
+    try { if (stk) await applyStock(l.it.id, { [s.from]: -q }, mid); moves.push(mkMove('venta', l.it, q, { id: mid, at, from: stk ? s.from : null, ref, price: r2(num(l.price) * factor), note: [s.cust.name ? 'Cliente: ' + s.cust.name : '', back ? `Venta con fecha pasada, registrada el ${fmtDateTime(nowIso())}${deduct ? '' : ' (sin tocar el inventario)'}` : ''].filter(Boolean).join(' · ') })); done.push(l); }
     catch (e) { fail = { l, e }; break; }
   }
   const sigData = hp && s.pad?.dirty ? s.pad.data() : null;
   const sale = { id: sid, no, ref, at, by: S.profile, foot: s.footOn === false ? '' : footSale(), cust: { ...s.cust }, ph: ph10(digits(s.cust.phone)), from: s.from, ivuOn: s.ivuOn, pay: { method: s.pay, ref: cash ? '' : s.payRef.trim(), ...(recv ? { received: recv } : {}) }, disc: T0.disc, ...(T0.disc && s.discMode === '%' ? { discPct: num(s.disc) } : {}), note: s.note.trim(), sig: !!sigData,
     lines: done.map(l => { const mf = mfrFor(l.it.brand); const prod = l.it.type === 'producto'; return { item: l.it.id, sku: l.it.sku || '', name: l.it.name, type: l.it.type, brand: l.it.brand || '', qty: r2(num(l.qty)), price: r2(num(l.price)), serial: (l.serial || '').trim(), warranty: prod ? (l.it.warranty || mf?.terms || '') : '', wphone: prod ? (l.it.wphone || mf?.phone || '') : '' }; }) };
   Object.assign(sale, saleCalc(sale));
+  if (back) { sale.back = true; sale.rec = nowIso(); if (!deduct) sale.noStock = true; if (s.paperNo.trim()) sale.paperNo = s.paperNo.trim(); }
   if (recv) sale.pay.change = r2(recv - sale.total);
   if (done.length) {
     try {
@@ -3596,6 +3642,7 @@ ACT.saleSubmit = async () => {
   if (!done.length) return;
   popModal(null);
   openSaleDetail(sale, sigData, true);
+  if (back) toast(`${ref} quedó con fecha del ${dayTxt(s.when)}: en Ventas aparece en ese día.`, 'ok');
 };
 const isRet = x => x?.kind === 'dev';
 const isVoid = x => !!x?.void;
@@ -3604,7 +3651,7 @@ function canVoid() { return isOffice(); }
 const saleGross = x => x.gross != null ? x.gross : r2(num(x.sub) + num(x.disc));
 function saleSummary(x) {
   const b = biz(); const r = isRet(x);
-  return [`${b.name} — ${r ? `Devolución ${x.ref} (factura ${x.ofRef})` : `Factura ${x.ref}`}`, fmtDateTime(x.at), x.cust?.name ? `Cliente: ${x.cust.name}` : '',
+  return [`${b.name} — ${r ? `Devolución ${x.ref} (factura ${x.ofRef})` : `Factura ${x.ref}`}`, fmtDateTime(x.at), backTxt(x), x.cust?.name ? `Cliente: ${x.cust.name}` : '',
     ...(x.lines || []).map(l => `• ${fq(l.qty)} × ${l.name}${l.serial ? ' (serie ' + l.serial + ')' : ''}: ${money(num(l.qty) * num(l.price))}`),
     `Subtotal: ${money(Math.abs(saleGross(x)))}`, num(x.disc) ? `Descuento: −${money(x.disc)}` : '', ...ivuRows(Math.abs(num(x.sub)), Math.abs(num(x.ivu)), x.ivuSt != null ? { ivuSt: Math.abs(x.ivuSt), ivuMu: Math.abs(x.ivuMu) } : null).map(([k, v]) => `${k}: ${money(v)}`),
     r ? `Total devuelto: ${money(-num(x.total))}` : `Total: ${money(x.total)}`, `${r ? 'Devuelto en' : 'Pago'}: ${x.pay?.method || ''}`,
@@ -3621,7 +3668,7 @@ function openSaleDetail(sale, sigData, fresh) {
   const canV = !r && !vd && canVoid() && !Object.keys(sale.rets || {}).length;
   const rets = Object.values(sale.rets || {});
   const paper = PRINT_PAPER();
-  pushModal(`<header class="sh-head"><span class="stub">${esc(sale.no)}</span><div class="grow"><h3>${r ? `Devolución ${esc(sale.ref)}` : `Factura ${esc(sale.ref)}`}</h3><div class="small muted">${esc(fmtDateTime(sale.at))}${sale.cust?.name ? ' · ' + esc(sale.cust.name) : ''} · ${esc(techName(sale.by))}</div></div>${closeBtn}</header>
+  pushModal(`<header class="sh-head"><span class="stub">${esc(sale.no)}</span><div class="grow"><h3>${r ? `Devolución ${esc(sale.ref)}` : `Factura ${esc(sale.ref)}`}</h3><div class="small muted">${esc(fmtDateTime(sale.at))}${sale.back ? ' · ' + esc(backTxt(sale)) : ''}${sale.cust?.name ? ' · ' + esc(sale.cust.name) : ''} · ${esc(techName(sale.by))}</div></div>${closeBtn}</header>
   <div class="sh-body">
     ${vd ? `<div class="banner warn"><b>Venta anulada</b> el ${esc(fmtDateTime(sale.void.at))}${sale.void.by ? ' por ' + esc(techName(sale.void.by)) : ''} · ${esc(sale.void.reason || '')}. No cuenta en las ventas, el cuadre, el IVU ni los reportes, y lo vendido volvió al inventario.</div>` : ''}
     ${r ? `<div class="banner info">Devolución de la factura <b>${esc(sale.ofRef)}</b>${sale.reason ? ' · ' + esc(sale.reason) : ''}</div>` : ''}
@@ -3665,14 +3712,14 @@ function receiptDoc(x, sig, paper) {
   const pay = `${r ? 'Devuelto en' : 'Pago'}: ${esc(x.pay?.method || '')}${x.pay?.ref ? ' · Ref. ' + esc(x.pay.ref) : ''}${x.pay?.received ? `<br>Recibido ${money(x.pay.received)} · Cambio ${money(x.pay.change || 0)}` : ''}`;
   const war = r ? [] : (x.lines || []).filter(l => l.warranty || l.wphone).map(l => `${esc(l.name)}${l.serial ? ' (serie ' + esc(l.serial) + ')' : ''}: ${esc(l.warranty || 'según el fabricante')}${l.wphone ? `. Servicio de garantía: ${esc(l.wphone)}${l.brand ? ' (' + esc(l.brand) + ')' : ''}` : ''}.`);
   const title = r ? 'DEVOLUCIÓN' : 'FACTURA';
-  const when = `${fmtDateY(ymd(new Date(x.at)))}, ${fmtTime(x.at)}`;
+  const when = `${fmtDateY(ymd(new Date(x.at)))}, ${fmtTime(x.at)}`; const bk = backTxt(x);
   const css = t80
     ? `@page{size:80mm auto;margin:0}.foot{white-space:pre-line}*{box-sizing:border-box}body{margin:0;font:12px/1.35 Arial,Helvetica,sans-serif;color:#000}.w{width:72mm;margin:0 auto;padding:3mm 0 6mm}.c{text-align:center}.biz{font-size:15px;font-weight:700}.sm{font-size:10.5px}.hr{border-top:1px dashed #000;margin:6px 0}.l{margin:4px 0}.r{display:flex;justify-content:space-between;gap:6px}.sku{font-family:monospace;font-size:10.5px}.t{display:flex;justify-content:space-between}.big{font-size:16px;font-weight:700}img{max-width:60mm;max-height:22mm}.logo{display:block;width:100%;max-width:100%;max-height:none;height:auto;margin:0 auto 2mm}`
     : `@page{size:letter;margin:14mm}.foot{white-space:pre-line}.logo{display:block;height:30mm;width:auto;max-width:105mm;max-height:none;margin:0 0 2mm}*{box-sizing:border-box}body{margin:0;font:11pt/1.4 Arial,Helvetica,sans-serif;color:#111}.head{display:flex;justify-content:space-between;gap:20px;border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:12px}.biz{font-size:17pt;font-weight:700}.box{text-align:right}.box .tt{font-size:15pt;font-weight:700;letter-spacing:.04em}.sm{font-size:9pt;color:#444}table{width:100%;border-collapse:collapse;margin:10px 0}th{text-align:left;font-size:9pt;text-transform:uppercase;border-bottom:1px solid #111;padding:5px 4px}td{padding:6px 4px;border-bottom:1px solid #ddd;vertical-align:top}.n{text-align:right;white-space:nowrap}.mono{font-family:monospace}.tot{margin-left:auto;width:260px}.t{display:flex;justify-content:space-between;padding:2px 0}.big{font-size:14pt;font-weight:700;border-top:1px solid #111;margin-top:4px;padding-top:4px}.sec{margin-top:12px}img{max-width:220px;max-height:80px}`;
   const totHtml = tot.map(([k, v]) => `<div class="t"><span>${esc(k)}</span><span>${v}</span></div>`).join('') + `<div class="t big"><span>${r ? 'Total devuelto' : 'Total'}</span><span>${money(Math.abs(num(x.total)))}</span></div>`;
   const body = t80
     ? `<div class="w"><div class="c">${lg ? `<img class="logo" src="${esc(lg)}" alt="">` : ''}${lgInfo ? '' : `<div class="biz">${esc(b.name || '')}</div><div class="sm">${esc(bizAddr())}</div><div class="sm">${esc(b.phone || '')}</div>`}</div>
-      <div class="hr"></div><div class="c"><b>${title} ${esc(x.ref)}</b><div class="sm">${esc(when)}</div>${r ? `<div class="sm">Factura original ${esc(x.ofRef)}</div>` : ''}</div>
+      <div class="hr"></div><div class="c"><b>${title} ${esc(x.ref)}</b><div class="sm">${esc(when)}</div>${bk ? `<div class="sm">${esc(bk)}</div>` : ''}${r ? `<div class="sm">Factura original ${esc(x.ofRef)}</div>` : ''}</div>
       ${c.name || c.phone ? `<div class="sm" style="margin-top:4px">Cliente: ${esc(c.name || '')}${c.phone ? ' · ' + esc(fmtPhone(c.phone)) : ''}</div>` : ''}
       <div class="hr"></div>${ln}<div class="hr"></div>${totHtml}<div class="hr"></div><div class="sm">${pay}</div>
       ${war.length ? `<div class="hr"></div><div class="sm"><b>Garantía</b><br>${war.join('<br>')}</div>` : ''}
@@ -3680,7 +3727,7 @@ function receiptDoc(x, sig, paper) {
       ${sig ? `<div class="hr"></div><div class="sm">Firma del cliente</div><img src="${sig}" alt="">` : ''}
       ${foot ? `<div class="hr"></div><div class="c sm foot">${esc(foot)}</div>` : ''}</div>`
     : `<div class="head"><div>${lg ? `<img class="logo" src="${esc(lg)}" alt="">` : ''}${lgInfo ? (b.email ? `<div class="sm">${esc(b.email)}</div>` : '') : `<div class="biz">${esc(b.name || '')}</div><div class="sm">${esc(bizAddr())}</div><div class="sm">${esc(b.phone || '')}${b.email ? ' · ' + esc(b.email) : ''}</div>`}</div>
-      <div class="box"><div class="tt">${title}</div><div><b>${esc(x.ref)}</b></div><div class="sm">${esc(when)}</div>${r ? `<div class="sm">Factura original ${esc(x.ofRef)}</div>` : ''}</div></div>
+      <div class="box"><div class="tt">${title}</div><div><b>${esc(x.ref)}</b></div><div class="sm">${esc(when)}</div>${bk ? `<div class="sm">${esc(bk)}</div>` : ''}${r ? `<div class="sm">Factura original ${esc(x.ofRef)}</div>` : ''}</div></div>
       ${c.name || c.phone ? `<div><div class="sm">Cliente</div><b>${esc(c.name || '')}</b><div class="sm">${esc([fmtPhone(c.phone), c.email].filter(Boolean).join(' · '))}</div><div class="sm">${esc([c.addr, c.mun].filter(Boolean).join(', '))}</div></div>` : ''}
       <table><thead><tr><th class="n">Cant.</th><th>Número</th><th>Descripción</th><th class="n">Precio</th><th class="n">Total</th></tr></thead><tbody>${ln}</tbody></table>
       <div class="tot">${totHtml}</div><div class="sec">${pay}</div>
@@ -4757,7 +4804,7 @@ async function boot(hot) {
    Las funciones con el mismo nombre que en los otros archivos los
    reemplazan (en JavaScript gana la última declaración).
    ===================================================================== */
-const APP_VERSION = '2026.11.25-d141e0';
+const APP_VERSION = '2026.11.25-be7d4c';
 const FB_CONFIG = window.FB_CONFIG || null;
 const PACK = 24;   // el inventario va en 24 documentos (inv/b0…b23), unos 150 artículos en cada uno
 const W = {
@@ -4957,6 +5004,7 @@ async function flushCount() {
 async function allDocs(coll) { return (await call(() => W.fs.collection(coll).get().catch(e => { throw fbErr(e); }))).docs; }
 function getSample() { return Promise.resolve(null); }
 function canVoid() { return isOffice() && W.u?.role === 'admin'; }
+function canBackdate() { return isOffice() && W.u?.role === 'admin'; }
 // Borrar entradas de un mapa y devolver el contador: directo en Firestore.
 async function delMapKeys(path, field, keys) {
   if (!keys.length) return;
