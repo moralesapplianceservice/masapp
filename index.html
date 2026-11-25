@@ -394,6 +394,11 @@ body.modal-open{overflow:hidden}
 .pos-cust-ic{color:var(--muted);display:inline-flex}
 .pos-cust .grid3{gap:8px}
 .foot-chk{align-items:flex-start;padding:4px 0}
+.cnt-place .toolbar{align-items:flex-end}
+.cnt-place .field{min-width:180px}
+.cnt-nav{margin-left:auto}
+.cnt-prog{margin:8px 0}
+.tbl tr.cnt-grp td{background:var(--surface-2,var(--bg));font-weight:700;font-size:13px;letter-spacing:.02em;padding-top:10px;padding-bottom:6px;color:var(--ink,inherit)}
 .foot-chk input{margin-top:1px;flex:0 0 auto}
 .foot-chk span{display:flex;flex-direction:column;gap:2px;min-width:0}
 .foot-chk small{font-size:12.5px;line-height:1.35;white-space:pre-line;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -642,7 +647,7 @@ const S = {
     view: '', date: ymd(), techDate: ymd(), q: '', filter: 'abiertas', dispTab: 'pool', poolMun: '',
     invTab: 'articulos', invQ: '', invType: '', invCat: '', invLoc: '', invLow: false, invNoPrice: false, invLimit: 150, impLater: false,
     vanQ: '', movesDays: 7, moves: null, movesLoading: false, movesKind: '', movesLoc: '',
-    countLoc: '', countQ: '', countCat: '', countOnlyDiff: false, countInStock: false, cntLocal: {},
+    countLoc: '', countQ: '', countCat: '', countOnlyDiff: false, countInStock: false, cntLocal: {}, countRack: '', countShelf: '',
     restock: null, restockVan: '',
     salesDays: 1, sales: null, salesLoading: false, salesQ: '',
     custQ: '', custAll: null, custList: null, custLoading: false, custLoaded: false,
@@ -997,6 +1002,16 @@ function autoProfile() {
   const t = techs().find(x => x.userId && x.userId === S.me);
   if (t && S.profile !== t.id) { S.profile = t.id; S.ui.view = ''; }
 }
+// Conteo por rack y tablilla: '01' y '1' son el mismo rack; '~' en los filtros quiere decir "sin rack" / "sin tablilla".
+const locKey = v => { const t = String(v ?? '').trim().toUpperCase(); return /^\d+$/.test(t) ? String(+t) : t; };
+const rackOf = it => locKey(it.rack), shelfOf = it => locKey(it.shelf);
+const natCmp = (a, b) => String(a).localeCompare(String(b), 'es', { numeric: true, sensitivity: 'base' });
+const locOrd = k => k === '' ? '￿' : k;   // lo que no tiene rack o tablilla va al final
+const byPlace = (a, b) => natCmp(locOrd(rackOf(a)), locOrd(rackOf(b))) || natCmp(locOrd(shelfOf(a)), locOrd(shelfOf(b))) || natCmp(a.sku || a.name, b.sku || b.name);
+const fmtDone = iso => { if (!iso) return ''; const d = new Date(iso); return `${d.getDate()} ${MES[d.getMonth()].slice(0, 3)}`; };
+const placeLabel = (r, sh) => [r === '~' || r === '' ? 'Sin rack' : 'Rack ' + r, sh ? (sh === '~' ? 'sin tablilla' : 'Tablilla ' + sh) : ''].filter(Boolean).join(' · ');
+// ¿El artículo está en el rack/tablilla escogidos?
+const inPlace = (it, r, sh) => (!r || rackOf(it) === (r === '~' ? '' : r)) && (!r || !sh || shelfOf(it) === (sh === '~' ? '' : sh));
 let countUnsub = null;
 function watchCount(loc) {
   countUnsub?.(); countUnsub = null; S.count = null;
@@ -1412,21 +1427,59 @@ function invConteo() {
   const u = S.ui; const L = locs();
   if (!u.countLoc || !L.some(l => l.id === u.countLoc)) u.countLoc = L[0]?.id || '';
   const loc = u.countLoc;
-  const entries = countEntries();
-  let arr = searchItems(u.countQ, { cat: u.countCat }).filter(isStocked);
+  const entries = countEntries(); const done = S.count?.done || {};
+  const allStocked = itemsArr().filter(it => isStocked(it) && it.active !== false);
+  // Racks y tablillas que existen, en orden natural (1, 2, … 10, 11), con cuántos artículos tiene cada uno
+  const rackN = new Map(); for (const it of allStocked) { const k = rackOf(it); rackN.set(k, (rackN.get(k) || 0) + 1); }
+  const racks = [...rackN.keys()].filter(Boolean).sort(natCmp); if (rackN.has('')) racks.push('~');
+  if (u.countRack && !racks.includes(u.countRack)) { u.countRack = ''; u.countShelf = ''; }
+  const rk = u.countRack;
+  const shelfN = new Map(); if (rk) for (const it of allStocked) if (inPlace(it, rk)) { const k = shelfOf(it); shelfN.set(k, (shelfN.get(k) || 0) + 1); }
+  const shelves = [...shelfN.keys()].filter(Boolean).sort(natCmp); if (shelfN.has('')) shelves.push('~');
+  if (u.countShelf && !shelves.includes(u.countShelf)) u.countShelf = '';
+  const sh = rk ? u.countShelf : '';
+  const q = (u.countQ || '').trim();
+  let arr = searchItems(q, { cat: u.countCat }).filter(isStocked);
+  if (rk) arr = arr.filter(it => inPlace(it, rk, sh));
   if (u.countInStock) arr = arr.filter(it => qtyAt(it, loc) !== 0 || entries[it.id] != null);
   if (u.countOnlyDiff) arr = arr.filter(it => entries[it.id] != null && r2(entries[it.id] - qtyAt(it, loc)) !== 0);
-  const allStocked = itemsArr().filter(it => isStocked(it) && it.active !== false);
+  const byLoc = !q; if (byLoc) arr.sort(byPlace);   // sin búsqueda, en el orden en que se camina el almacén
   const counted = Object.keys(entries).filter(id => S.items.get(id)).length;
   const diffs = Object.entries(entries).map(([id, v]) => { const it = S.items.get(id); return it ? { it, d: r2(v - qtyAt(it, loc)) } : null; }).filter(x => x && x.d !== 0);
   const valDiff = sum(diffs, x => x.d * num(x.it.cost));
+  // Lo del rack (o tablilla) escogido
+  const scope = rk ? allStocked.filter(it => inPlace(it, rk, sh)) : [];
+  const scCounted = scope.filter(it => entries[it.id] != null).length;
+  const scDiffs = scope.filter(it => entries[it.id] != null && r2(entries[it.id] - qtyAt(it, loc)) !== 0).length;
+  const doneOf = (r, s2) => done[s2 ? `${r}|${s2}` : r];
+  const dn = rk ? (doneOf(rk, sh) || (sh ? doneOf(rk) : null)) : null;
+  const ri = racks.indexOf(rk);
   const shown = arr.slice(0, 300);
+  let lastG = null;
+  const rows = shown.map(it => { const sys = qtyAt(it, loc); const v = u.cntLocal[it.id] !== undefined ? u.cntLocal[it.id] : (entries[it.id] != null ? String(entries[it.id]) : ''); const d = v === '' ? null : r2(num(v) - sys);
+      const g = byLoc ? placeLabel(rackOf(it), rackOf(it) ? (shelfOf(it) || '~') : '') : null;
+      const head = g && g !== lastG ? `<tr class="cnt-grp"><td colspan="4">${esc(g)}</td></tr>` : ''; lastG = g;
+      return `${head}<tr><td class="nm"><b>${esc(it.name)}</b><div class="small muted">${it.sku ? `<span class="mono">${esc(it.sku)}</span> · ` : ''}${esc(locTxt(it) || it.cat || '')}</div></td><td class="n">${fq(sys)}</td>
+      <td class="n"><input class="inp" id="cnt-${esc(it.id)}" inputmode="decimal" value="${esc(v)}" data-in="cnt" data-id="${esc(it.id)}" aria-label="Cantidad contada de ${esc(it.name)}"></td>
+      <td class="n" id="cd-${esc(it.id)}">${d == null ? '<span class="muted">—</span>' : `<span class="${d > 0 ? 'pos' : d < 0 ? 'neg' : ''}">${d > 0 ? '+' : ''}${fq(d)}</span>`}</td></tr>`; }).join('');
+  const optR = r => { const n = rackN.get(r === '~' ? '' : r) || 0; const d0 = done[r]; return `<option value="${esc(r)}" ${rk === r ? 'selected' : ''}>${esc(placeLabel(r))} · ${n}${d0 ? ' · ✓ ' + esc(fmtDone(d0.at)) : ''}</option>`; };
+  const optS = x => { const n = shelfN.get(x === '~' ? '' : x) || 0; const d0 = doneOf(rk, x); return `<option value="${esc(x)}" ${sh === x ? 'selected' : ''}>${esc(x === '~' ? 'Sin tablilla' : 'Tablilla ' + x)} · ${n}${d0 ? ' · ✓ ' + esc(fmtDone(d0.at)) : ''}</option>`; };
   return `
   <section class="card">
     <div class="toolbar"><label class="field" style="min-width:220px"><span>Ubicación que vas a contar</span><select class="inp" id="c-loc" data-ch="ui" data-k="countLoc">${L.map(l => `<option value="${esc(l.id)}" ${loc === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select></label>
       <div class="vals"><div class="val">Contados<b>${counted} / ${allStocked.length}</b></div><div class="val">Con diferencia<b>${diffs.length}</b></div><div class="val">Valor del ajuste<b class="${valDiff < 0 ? 'neg' : valDiff > 0 ? 'pos' : ''}">${valDiff > 0 ? '+' : ''}${money(valDiff)}</b></div></div></div>
-    <p class="small muted">Escribe lo que cuentas en cada artículo; se guarda solo y varias personas pueden contar a la vez. Los artículos en blanco no se tocan. Al terminar, toca <b>Aplicar conteo</b> antes de vender o mover mercancía.</p>
-    <div class="row-wrap"><button class="btn primary" type="button" data-act="countApply" ${diffs.length ? '' : 'disabled'}>Aplicar conteo (${diffs.length})</button><button class="btn danger" type="button" data-act="countDiscard" ${counted ? '' : 'disabled'}>Borrar conteo</button></div>
+    <p class="small muted">Escribe lo que cuentas en cada artículo; se guarda solo y varias personas pueden contar a la vez. Los artículos en blanco no se tocan. Puedes contar por rack y tablilla y aplicar cada rack al terminarlo, o aplicar todo al final; aplícalo antes de vender o mover esa mercancía.</p>
+    <div class="row-wrap"><button class="btn ${rk ? '' : 'primary'}" type="button" data-act="countApply" ${diffs.length ? '' : 'disabled'}>${rk ? 'Aplicar todo el conteo' : 'Aplicar conteo'} (${diffs.length})</button><button class="btn danger" type="button" data-act="countDiscard" ${counted ? '' : 'disabled'}>Borrar conteo</button></div>
+  </section>
+  <section class="card cnt-place">
+    <div class="toolbar">
+      <label class="field"><span>Rack</span><select class="inp" id="c-rack" data-ch="ui" data-k="countRack"><option value="">Todos los racks</option>${racks.map(optR).join('')}</select></label>
+      ${rk ? `<label class="field"><span>Tablilla</span><select class="inp" id="c-shelf" data-ch="ui" data-k="countShelf"><option value="">Todas las tablillas</option>${shelves.map(optS).join('')}</select></label>` : ''}
+      ${rk ? `<div class="row-wrap cnt-nav"><button class="btn sm" type="button" data-act="countRackStep" data-d="-1" ${ri <= 0 ? 'disabled' : ''}>← Rack anterior</button><button class="btn sm" type="button" data-act="countRackStep" data-d="1" ${ri >= racks.length - 1 ? 'disabled' : ''}>Rack siguiente →</button></div>` : ''}
+    </div>
+    ${rk ? `<p class="cnt-prog"><b>${esc(placeLabel(rk, sh))}</b>: contados <b>${scCounted} de ${scope.length}</b>${scDiffs ? ` · <span class="neg">${scDiffs} con diferencia</span>` : ''}${dn ? ` · <span class="pos">✓ aplicado el ${esc(fmtDone(dn.at))}</span>` : ''}</p>
+    <div class="row-wrap"><button class="btn primary" type="button" data-act="countApply" data-scope="1" ${scCounted ? '' : 'disabled'}>Aplicar ${esc(placeLabel(rk, sh))} (${scCounted})</button></div>`
+    : `<p class="small muted">Escoge un rack para contar en el orden en que está en el almacén. La lista ya va por rack y tablilla.</p>`}
   </section>
   <section class="toolbar">
     <label class="search grow">${IC.search}<input class="inp" id="c-q" type="search" placeholder="Buscar artículo" value="${esc(u.countQ)}" data-in="ui" data-k="countQ" autocomplete="off"></label>
@@ -1435,12 +1488,9 @@ function invConteo() {
     <label class="chk"><input type="checkbox" id="c-diff" data-ch="ui" data-k="countOnlyDiff" ${u.countOnlyDiff ? 'checked' : ''}> Solo diferencias</label>
   </section>
   <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Artículo</th><th class="n">En sistema</th><th class="n">Contado</th><th class="n">Diferencia</th></tr></thead><tbody>
-    ${shown.map(it => { const sys = qtyAt(it, loc); const v = u.cntLocal[it.id] !== undefined ? u.cntLocal[it.id] : (entries[it.id] != null ? String(entries[it.id]) : ''); const d = v === '' ? null : r2(num(v) - sys);
-      return `<tr><td class="nm"><b>${esc(it.name)}</b><div class="small muted">${it.sku ? `<span class="mono">${esc(it.sku)}</span> · ` : ''}${esc(locTxt(it) || it.cat || '')}</div></td><td class="n">${fq(sys)}</td>
-      <td class="n"><input class="inp" id="cnt-${esc(it.id)}" inputmode="decimal" value="${esc(v)}" data-in="cnt" data-id="${esc(it.id)}" aria-label="Cantidad contada de ${esc(it.name)}"></td>
-      <td class="n" id="cd-${esc(it.id)}">${d == null ? '<span class="muted">—</span>' : `<span class="${d > 0 ? 'pos' : d < 0 ? 'neg' : ''}">${d > 0 ? '+' : ''}${fq(d)}</span>`}</td></tr>`; }).join('') || `<tr><td colspan="4" class="muted">No hay artículos con estos filtros.</td></tr>`}
+    ${rows || `<tr><td colspan="4" class="muted">No hay artículos con estos filtros.</td></tr>`}
   </tbody></table></div>
-  ${arr.length > shown.length ? `<p class="muted small">Se muestran 300 de ${arr.length}. Usa la búsqueda o la categoría para contar por secciones.</p>` : ''}`;
+  ${arr.length > shown.length ? `<p class="muted small">Se muestran 300 de ${arr.length}. Escoge un rack, o usa la búsqueda o la categoría, para contar por secciones.</p>` : ''}`;
 }
 function invReabastecer() {
   const V = vans(); const u = S.ui;
@@ -2388,32 +2438,58 @@ async function flushCount() {
     toast('No se pudo guardar el conteo todavía. Se intentará otra vez.', 'warn');
   }
 }
-ACT.countApply = async () => {
+// Aplica lo contado: todo, o solo el rack/tablilla escogido (data-scope). Lo aplicado se borra del conteo y el rack queda
+// marcado como contado (counts/{ubicación}.done) para saber por dónde se va en un inventario de varios días.
+ACT.countApply = async el => {
   await flushCount();
   const loc = S.ui.countLoc; const entries = countEntries();
-  const diffs = Object.entries(entries).map(([id, v]) => { const it = S.items.get(id); return it ? { it, real: r2(v), d: r2(v - qtyAt(it, loc)) } : null; }).filter(x => x && x.d !== 0);
-  if (!diffs.length) { toast('No hay diferencias que aplicar.', 'warn'); return; }
+  const rk = el?.dataset?.scope ? S.ui.countRack : ''; const sh = rk ? S.ui.countShelf : '';
+  const ids = Object.keys(entries).filter(id => { const it = S.items.get(id); return it && (!rk || inPlace(it, rk, sh)); });
+  const diffs = ids.map(id => { const it = S.items.get(id); const v = entries[id]; return { it, real: r2(v), d: r2(v - qtyAt(it, loc)) }; }).filter(x => x.d !== 0);
+  const where = rk ? placeLabel(rk, sh) : '';
+  if (!ids.length) { toast('No hay nada contado aquí todavía.', 'warn'); return; }
+  if (!diffs.length && !rk) { toast('No hay diferencias que aplicar.', 'warn'); return; }
   const plus = sum(diffs.filter(x => x.d > 0), x => x.d), minus = sum(diffs.filter(x => x.d < 0), x => x.d), val = sum(diffs, x => x.d * num(x.it.cost));
-  const yes = await confirmDlg('Aplicar conteo', `<p>${esc(locName(loc))}: cambian <b>${diffs.length}</b> artículos.</p><p>Sobrantes <b class="pos">+${fq(plus)}</b> · Faltantes <b class="neg">${fq(minus)}</b> · Valor <b>${money(val)}</b></p><p class="small muted">Las existencias quedarán igual a lo contado y la diferencia se anota como ajuste.</p>`, 'Aplicar');
+  const yes = diffs.length
+    ? await confirmDlg(rk ? `Aplicar ${where}` : 'Aplicar conteo', `<p>${esc(locName(loc))}${rk ? ' · ' + esc(where) : ''}: cambian <b>${diffs.length}</b> de ${ids.length} artículos contados.</p><p>Sobrantes <b class="pos">+${fq(plus)}</b> · Faltantes <b class="neg">${fq(minus)}</b> · Valor <b>${money(val)}</b></p><p class="small muted">Las existencias quedarán igual a lo contado y la diferencia se anota como ajuste por conteo físico.</p>`, 'Aplicar')
+    : await confirmDlg(`${where}: todo cuadra`, `<p>Los ${ids.length} artículos contados tienen lo mismo que el sistema. Se marca como contado y no cambia ninguna existencia.</p>`, 'Marcar como contado');
   if (!yes || !guard()) return;
   const moves = []; let fail = null;
   for (let i = 0; i < diffs.length; i++) {
     const { it, real } = diffs[i];
     if (i % 3 === 0) busy(`Aplicando ${i + 1} de ${diffs.length}…`, i / diffs.length);
-    try { const cur = qtyAt(S.items.get(it.id) || it, loc); await call(() => itemRef(it.id).update({ stock: { [loc]: real }, upd: nowIso() })); const d = r2(real - cur); if (d) moves.push(mkMove('ajuste', it, d, { to: loc, note: 'Conteo físico' })); }
+    try { const cur = qtyAt(S.items.get(it.id) || it, loc); await call(() => itemRef(it.id).update({ stock: { [loc]: real }, upd: nowIso() })); const d = r2(real - cur); if (d) moves.push(mkMove('ajuste', it, d, { to: loc, note: 'Conteo físico' + (where ? ' · ' + where : '') })); }
     catch (e) { fail = e; break; }
   }
   try { for (let c = 0; c < moves.length; c += 400) await logMoves(moves.slice(c, c + 400), `${ymd()}~conteo-${loc}-${uid(4)}`); } catch (e) { console.warn(e); }
-  if (!fail) { try { await call(() => S.db.doc('counts/' + loc).set({ loc, e: {}, upd: nowIso(), by: S.profile })); } catch (e) { console.warn(e); } S.ui.cntLocal = {}; }
+  if (!fail) {
+    // racks que quedaron contados: el escogido, o cada rack que tenía algo contado si se aplicó todo
+    const mark = {}; const stamp = (k, n) => { mark[k] = { at: nowIso(), by: S.profile || '', n }; };
+    if (rk) stamp(sh ? `${rk}|${sh}` : rk, ids.length);
+    else { const per = {}; for (const id of ids) { const r = rackOf(S.items.get(id)) || '~'; per[r] = (per[r] || 0) + 1; } for (const [r, n] of Object.entries(per)) stamp(r, n); }
+    try {
+      if (rk) await delMapKeys('counts/' + loc, 'e', ids);
+      else await call(() => S.db.doc('counts/' + loc).set({ loc, e: {}, done: { ...(S.count?.done || {}) }, upd: nowIso(), by: S.profile }));
+      await appendMap('counts/' + loc, 'done', mark);
+    } catch (e) { console.warn(e); }
+    for (const id of ids) delete S.ui.cntLocal[id];
+  }
   busy(null);
-  if (fail) toast(`Se aplicaron ${moves.length} de ${diffs.length}. ${errMsg(fail)}`, 'err'); else toast(`Conteo aplicado: ${moves.length} ajustes`, 'ok');
+  if (fail) toast(`Se aplicaron ${moves.length} de ${diffs.length}. ${errMsg(fail)}`, 'err');
+  else toast(rk ? `${where}: ${moves.length ? moves.length + ' ajustes aplicados' : 'todo cuadra'}. Marcado como contado.` : `Conteo aplicado: ${moves.length} ajustes`, 'ok');
   schedule();
+};
+ACT.countRackStep = el => {
+  const all = itemsArr().filter(it => isStocked(it) && it.active !== false); const set = new Set(all.map(rackOf));
+  const racks = [...set].filter(Boolean).sort(natCmp); if (set.has('')) racks.push('~');
+  const i = racks.indexOf(S.ui.countRack) + num(el.dataset.d); if (i < 0 || i >= racks.length) return;
+  S.ui.countRack = racks[i]; S.ui.countShelf = ''; window.scrollTo(0, 0); schedule();
 };
 ACT.countDiscard = async () => {
   const loc = S.ui.countLoc;
   if (!(await confirmDlg('Borrar conteo', `<p>Se borra lo contado en ${esc(locName(loc))}. Las existencias no cambian.</p>`, 'Borrar', true))) return;
   cntDirty = {}; clearTimeout(cntTimer);
-  if (await quiet(() => call(() => S.db.doc('counts/' + loc).set({ loc, e: {}, upd: nowIso(), by: S.profile })))) { S.ui.cntLocal = {}; schedule(); }
+  if (await quiet(() => call(() => S.db.doc('counts/' + loc).set({ loc, e: {}, done: { ...(S.count?.done || {}) }, upd: nowIso(), by: S.profile })))) { S.ui.cntLocal = {}; schedule(); }
 };
 
 /* ---------- Reabastecer guaguas ---------- */
@@ -4458,6 +4534,7 @@ INP.ui = el => { const k = el.dataset.k; S.ui[k] = el.type === 'checkbox' ? el.c
 CHG.ui = el => {
   const k = el.dataset.k;
   if (k === 'countLoc') { flushCount(); S.ui.cntLocal = {}; }
+  if (k === 'countRack') S.ui.countShelf = '';
   if (k === 'restockVan') S.ui.restock = null;
   S.ui[k] = el.type === 'checkbox' ? el.checked : el.value;
   if (k.startsWith('inv')) S.ui.invLimit = 150;
@@ -4563,7 +4640,7 @@ async function boot(hot) {
    Las funciones con el mismo nombre que en los otros archivos los
    reemplazan (en JavaScript gana la última declaración).
    ===================================================================== */
-const APP_VERSION = '2026.11.24-108df6';
+const APP_VERSION = '2026.11.25-9b21ea';
 const FB_CONFIG = window.FB_CONFIG || null;
 const PACK = 24;   // el inventario va en 24 documentos (inv/b0…b23), unos 150 artículos en cada uno
 const W = {
