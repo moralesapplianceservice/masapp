@@ -398,6 +398,9 @@ body.modal-open{overflow:hidden}
 .cnt-place .field{min-width:180px}
 .cnt-nav{margin-left:auto}
 .cnt-prog{margin:8px 0}
+.ca-res{margin-top:8px;max-height:52vh;overflow:auto}
+.ca-row{display:flex;align-items:center;gap:10px;justify-content:space-between}
+.ca-row .btn{flex:0 0 auto}
 .tbl tr.cnt-grp td{background:var(--surface-2,var(--bg));font-weight:700;font-size:13px;letter-spacing:.02em;padding-top:10px;padding-bottom:6px;color:var(--ink,inherit)}
 .foot-chk input{margin-top:1px;flex:0 0 auto}
 .foot-chk span{display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -1475,10 +1478,10 @@ function invConteo() {
     <div class="toolbar">
       <label class="field"><span>Rack</span><select class="inp" id="c-rack" data-ch="ui" data-k="countRack"><option value="">Todos los racks</option>${racks.map(optR).join('')}</select></label>
       ${rk ? `<label class="field"><span>Tablilla</span><select class="inp" id="c-shelf" data-ch="ui" data-k="countShelf"><option value="">Todas las tablillas</option>${shelves.map(optS).join('')}</select></label>` : ''}
-      ${rk ? `<div class="row-wrap cnt-nav"><button class="btn sm" type="button" data-act="countRackStep" data-d="-1" ${ri <= 0 ? 'disabled' : ''}>← Rack anterior</button><button class="btn sm" type="button" data-act="countRackStep" data-d="1" ${ri >= racks.length - 1 ? 'disabled' : ''}>Rack siguiente →</button></div>` : ''}
+      <div class="row-wrap cnt-nav">${rk ? `<button class="btn sm" type="button" data-act="countRackStep" data-d="-1" ${ri <= 0 ? 'disabled' : ''}>← Rack anterior</button><button class="btn sm" type="button" data-act="countRackStep" data-d="1" ${ri >= racks.length - 1 ? 'disabled' : ''}>Rack siguiente →</button>` : ''}<button class="btn sm" type="button" data-act="countSheet">${IC.print} Hoja para contar</button></div>
     </div>
     ${rk ? `<p class="cnt-prog"><b>${esc(placeLabel(rk, sh))}</b>: contados <b>${scCounted} de ${scope.length}</b>${scDiffs ? ` · <span class="neg">${scDiffs} con diferencia</span>` : ''}${dn ? ` · <span class="pos">✓ aplicado el ${esc(fmtDone(dn.at))}</span>` : ''}</p>
-    <div class="row-wrap"><button class="btn primary" type="button" data-act="countApply" data-scope="1" ${scCounted ? '' : 'disabled'}>Aplicar ${esc(placeLabel(rk, sh))} (${scCounted})</button></div>`
+    <div class="row-wrap"><button class="btn primary" type="button" data-act="countApply" data-scope="1" ${scCounted ? '' : 'disabled'}>Aplicar ${esc(placeLabel(rk, sh))} (${scCounted})</button>${rk !== '~' ? `<button class="btn" type="button" data-act="countAddHere">${IC.plus} Añadir a este rack</button>` : ''}</div>`
     : `<p class="small muted">Escoge un rack para contar en el orden en que está en el almacén. La lista ya va por rack y tablilla.</p>`}
   </section>
   <section class="toolbar">
@@ -2478,6 +2481,120 @@ ACT.countApply = async el => {
   if (fail) toast(`Se aplicaron ${moves.length} de ${diffs.length}. ${errMsg(fail)}`, 'err');
   else toast(rk ? `${where}: ${moves.length ? moves.length + ' ajustes aplicados' : 'todo cuadra'}. Marcado como contado.` : `Conteo aplicado: ${moves.length} ajustes`, 'ok');
   schedule();
+};
+/* ---------- Hoja para contar en papel: por rack (y tablilla), en el mismo orden que la pantalla ---------- */
+IC.print = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>';
+const SHEET_ROWS = 25;   // filas que caben en una hoja carta
+function countSheetSecs() {
+  const u = S.ui; const loc = u.countLoc; const entries = countEntries();
+  let arr = searchItems('', { cat: u.countCat }).filter(isStocked);
+  if (u.countRack) arr = arr.filter(it => inPlace(it, u.countRack, u.countShelf));
+  if (u.countInStock) arr = arr.filter(it => qtyAt(it, loc) !== 0 || entries[it.id] != null);
+  arr.sort(byPlace);
+  const secs = []; let cur = null;
+  for (const it of arr) { const r = rackOf(it); if (!cur || cur.rack !== r) secs.push(cur = { rack: r, items: [], groups: new Set() }); cur.items.push(it); cur.groups.add(shelfOf(it)); }
+  for (const sec of secs) sec.pages = Math.max(1, Math.ceil((sec.items.length + (sec.rack ? sec.groups.size : 0)) / SHEET_ROWS));
+  return secs;
+}
+function countSheetDoc(secs, sys) {
+  const b = biz(); const loc = S.ui.countLoc; const shF = S.ui.countRack ? S.ui.countShelf : ''; const today = fmtDateY(ymd());
+  const cols = sys ? 6 : 5;
+  const body = secs.map(sec => {
+    let lastSh = null, n = 0;
+    const rows = sec.items.map(it => {
+      const shk = shelfOf(it) || '~';
+      const g = sec.rack && shk !== lastSh ? `<tr class="g"><td colspan="${cols}">${esc(shk === '~' ? 'Sin tablilla' : 'Tablilla ' + shk)}</td></tr>` : ''; lastSh = shk;
+      return `${g}<tr><td class="n i">${++n}</td><td class="mono">${esc(it.sku || '')}</td><td class="desc">${esc(trunc(it.name, 64))}</td>${sys ? `<td class="n">${fq(qtyAt(it, loc))}</td>` : ''}<td class="box"></td><td></td></tr>`;
+    }).join('');
+    const title = placeLabel(sec.rack || '~', shF);
+    return `<section class="rk"><table><colgroup><col style="width:9mm"><col style="width:34mm"><col>${sys ? '<col style="width:17mm">' : ''}<col style="width:24mm"><col style="width:34mm"></colgroup>
+      <thead><tr><td colspan="${cols}" class="hdc"><div class="hd"><div><div class="sm">${esc(b.name || '')} · Hoja de conteo · ${esc(locName(loc))}</div><h1>${esc(title)}</h1></div><div class="sm r">${sec.items.length} artículos<br>Impresa el ${esc(today)}</div></div></td></tr>
+      <tr><th class="n">#</th><th>Código</th><th>Descripción</th>${sys ? '<th class="n">Sistema</th>' : ''}<th class="c">Contado</th><th>Notas</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+      <div class="who"><span>Contó:</span><span>Fecha:</span><span>Revisó:</span></div></section>`;
+  }).join('');
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Hoja de conteo</title><style>
+@page{size:letter;margin:11mm 12mm}
+*{box-sizing:border-box}
+body{font:10.5pt/1.25 Arial,Helvetica,sans-serif;color:#000;margin:0}
+.rk{break-after:page}.rk:last-child{break-after:auto}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+thead{display:table-header-group}
+.hdc{padding:0 0 4px;border:0}
+.hd{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;border-bottom:2px solid #000;padding-bottom:5px}
+.hd h1{font-size:21pt;line-height:1.1;margin:2px 0 0}
+.sm{font-size:8.5pt}.r{text-align:right}
+th{font-size:8pt;text-transform:uppercase;letter-spacing:.04em;text-align:left;border-bottom:1.5px solid #000;padding:5px 4px 3px}
+td{border-bottom:1px solid #9a9a9a;padding:0 4px;height:8.4mm;vertical-align:middle;overflow:hidden}
+tr{break-inside:avoid}
+tr.g td{height:6.5mm;font-weight:700;font-size:9.5pt;background:#e9e9e9;border-bottom:1px solid #000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.n{text-align:right;white-space:nowrap}.c{text-align:center}.i{color:#444;font-size:9pt}
+.mono{font-family:'Courier New',monospace;font-size:9.5pt;white-space:nowrap;text-overflow:ellipsis}
+.desc{font-size:9.5pt;line-height:1.15}
+td.box{border:1.5px solid #000}
+.who{display:flex;gap:16px;font-size:9.5pt;margin-top:9mm}
+.who span{flex:1;border-bottom:1px solid #000;padding-bottom:2px}
+</style></head><body>${body}</body></html>`;
+}
+ACT.countSheet = async () => {
+  const secs = countSheetSecs(); const n = sum(secs, x => x.items.length);
+  if (!n) { toast('No hay artículos para imprimir con estos filtros.', 'warn'); return; }
+  const pages = sum(secs, x => x.pages); const u = S.ui;
+  const nr = secs.filter(x => x.rack).length; const noRack = secs.some(x => !x.rack);
+  const what = u.countRack ? placeLabel(u.countRack, u.countShelf) : `Todos: ${fmtN(nr)} ${nr === 1 ? 'rack' : 'racks'}${noRack ? ' y los artículos sin rack' : ''}`;
+  const ok = await confirmDlg('Hoja para contar', `<p><b>${esc(what)}</b> · ${fmtN(n)} artículos · ${pages === 1 ? '1 página' : `unas ${fmtN(pages)} páginas`}${secs.length > 1 ? '. Cada rack empieza en una hoja nueva' : ''}.</p>
+    <label class="chk"><input type="checkbox" data-ch="ui" data-k="sheetSys" ${u.sheetSys ? 'checked' : ''}> Poner la cantidad que dice el sistema</label>
+    <p class="small muted">Sin esa cantidad se cuenta "a ciegas", que es más confiable: nadie se deja llevar por lo que dice el sistema. La hoja va en el mismo orden que la pantalla para pasar los números rápido.</p>`, 'Imprimir');
+  if (ok) printHtml(countSheetDoc(secs, !!S.ui.sheetSys));
+};
+/* ---------- Añadir al rack lo que se encontró ahí: piezas que el sistema tiene en otro lugar, o que no están en el inventario ---------- */
+let caT = 0;
+ACT.countAddHere = () => {
+  const rk = S.ui.countRack; if (!rk || rk === '~') return;
+  const sh0 = S.ui.countShelf && S.ui.countShelf !== '~' ? S.ui.countShelf : '';
+  pushModal(`<header class="sh-head"><div class="grow"><h3>Añadir a ${esc(placeLabel(rk))}</h3><div class="small muted">Piezas que encontraste aquí y el sistema tiene en otro lugar, o que no están en el inventario.</div></div>${closeBtn}</header>
+  <div class="sh-body">
+    <label class="field" style="max-width:220px"><span>Tablilla donde la encontraste</span><input class="inp" id="ca-shelf" value="${esc(sh0)}" placeholder="Ej.: 3" autocomplete="off"></label>
+    <label class="search">${IC.search}<input class="inp" id="ca-q" type="search" placeholder="Busca por código o descripción" data-in="caQ" autocomplete="off" autofocus></label>
+    <div id="ca-res" class="list ca-res"><p class="small muted">Escribe al menos 2 letras o números.</p></div>
+  </div>
+  <footer class="sh-foot"><button class="btn" type="button" data-act="countNewHere">${IC.plus} No está en el inventario: crearlo aquí</button></footer>`, { small: true });
+};
+INP.caQ = el => { clearTimeout(caT); caT = setTimeout(() => caRender(el), 180); };
+function caRender(el) {
+  const L = el.closest('.layer'); const box = L?.querySelector('#ca-res'); if (!box) return;
+  const q = el.value.trim(); if (q.length < 2) { box.innerHTML = '<p class="small muted">Escribe al menos 2 letras o números.</p>'; return; }
+  const rk = S.ui.countRack; const loc = S.ui.countLoc;
+  const res = searchItems(q, { includeInactive: true }).filter(isStocked).slice(0, 25);
+  box.innerHTML = res.map(it => { const here = rackOf(it) === rk;
+    return `<div class="irow ca-row"><div><div class="i-name">${esc(it.name)}${it.active === false ? ' <span class="tag">inactivo</span>' : ''}</div><div class="small muted">${it.sku ? `<span class="mono">${esc(it.sku)}</span> · ` : ''}${esc(locTxt(it) || 'Sin rack')} · hay ${fq(qtyAt(it, loc))} en ${esc(locName(loc))}</div></div>
+      <button class="btn sm ${here && it.active !== false ? '' : 'primary'}" type="button" data-act="countMoveHere" data-id="${esc(it.id)}">${it.active === false ? 'Activar y traer aquí' : here ? 'Está aquí: contarlo' : 'Traer a este rack'}</button></div>`; }).join('')
+    || '<p class="small muted">No aparece en el inventario. Créalo con el botón de abajo.</p>';
+}
+ACT.countMoveHere = async el => {
+  const it = S.items.get(el.dataset.id); const L = el.closest('.layer'); if (!it) return;
+  const rk = S.ui.countRack; const shIn = locKey(L?.querySelector('#ca-shelf')?.value);
+  const patch = {};
+  if (rackOf(it) !== rk) { patch.rack = rk; patch.shelf = shIn; }          // de otro rack: la tablilla vieja ya no aplica
+  else if (shIn && shelfOf(it) !== shIn) patch.shelf = shIn;
+  if (it.active === false) patch.active = true;
+  const now = { ...it, ...patch };
+  if (Object.keys(patch).length) {
+    if (!(await run('Guardando…', () => call(() => itemRef(it.id).update({ ...patch, upd: nowIso() }))))) return;
+    toast(`${it.sku || it.name}: ahora está en ${placeLabel(rk, shelfOf(now) || '~')}. Escribe lo que contaste.`, 'ok');
+  }
+  popModal(null);
+  if (S.ui.countShelf && !inPlace(now, rk, S.ui.countShelf)) S.ui.countShelf = shelfOf(now) || '~';   // ir a la tablilla donde quedó
+  S.ui.countQ = ''; S.ui.countOnlyDiff = false; schedule();
+  setTimeout(() => { const inp = document.getElementById('cnt-' + it.id); if (inp) { inp.scrollIntoView({ block: 'center' }); inp.focus(); } }, 450);
+};
+ACT.countNewHere = el => {
+  const L = el.closest('.layer'); const q = (L?.querySelector('#ca-q')?.value || '').trim(); const sh = locKey(L?.querySelector('#ca-shelf')?.value);
+  popModal(null); openItem(null);
+  const M = MS[MS.length - 1]?.layer; const set = (id, v) => { const x = M?.querySelector('#' + id); if (x && v) x.value = v; };
+  set('f-rack', S.ui.countRack); set('f-shelf', sh); set('f-loc0', S.ui.countLoc);
+  if (q && /\d/.test(q) && !/\s/.test(q)) set('f-sku', q.toUpperCase()); else if (q) set('f-name', q.toUpperCase());
+  setTimeout(() => M?.querySelector(q && /\d/.test(q) && !/\s/.test(q) ? '#f-name' : '#f-sku')?.focus(), 60);
 };
 ACT.countRackStep = el => {
   const all = itemsArr().filter(it => isStocked(it) && it.active !== false); const set = new Set(all.map(rackOf));
@@ -4640,7 +4757,7 @@ async function boot(hot) {
    Las funciones con el mismo nombre que en los otros archivos los
    reemplazan (en JavaScript gana la última declaración).
    ===================================================================== */
-const APP_VERSION = '2026.11.25-9b21ea';
+const APP_VERSION = '2026.11.25-d141e0';
 const FB_CONFIG = window.FB_CONFIG || null;
 const PACK = 24;   // el inventario va en 24 documentos (inv/b0…b23), unos 150 artículos en cada uno
 const W = {
