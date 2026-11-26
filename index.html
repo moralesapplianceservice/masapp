@@ -394,6 +394,7 @@ body.modal-open{overflow:hidden}
 .pos-cust-ic{color:var(--muted);display:inline-flex}
 .pos-cust .grid3{gap:8px}
 .foot-chk{align-items:flex-start;padding:4px 0}
+.pl-sers{display:grid;gap:6px;grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
 .pos-when-row{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .pos-when{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--line);border-radius:12px}
 .pos-when.back{border-color:#B45309;background:color-mix(in srgb,#F59E0B 12%,var(--surface))}
@@ -3415,7 +3416,7 @@ function saleLinesHtml() {
       <div class="pl-row"><div class="qty-step"><button class="icon-btn" type="button" data-act="saleQty" data-i="${i}" data-d="-1" aria-label="Uno menos">−</button><input class="inp" id="sl-qty-${i}" inputmode="decimal" value="${esc(l.qty)}" data-in="saleLineIn" data-i="${i}" data-f="qty" aria-label="Cantidad de ${esc(it.name)}"><button class="icon-btn" type="button" data-act="saleQty" data-i="${i}" data-d="1" aria-label="Uno más">+</button></div>
         <span class="muted">×</span><label class="pl-price"><span class="muted">$</span><input class="inp" id="sl-price-${i}" inputmode="decimal" value="${esc(l.price)}" data-in="saleLineIn" data-i="${i}" data-f="price" aria-label="Precio de ${esc(it.name)}"></label>
         <b class="pl-sub" id="sl-sub-${i}">${money(num(l.qty) * num(l.price))}</b></div>
-      ${it.type === 'producto' ? `<input class="inp" id="sl-serial-${i}" placeholder="Número de serie" value="${esc(l.serial)}" data-in="saleLineIn" data-i="${i}" data-f="serial">` : ''}
+      ${it.type === 'producto' ? `<div class="pl-sers" id="sl-sers-${i}">${serHtml(l, i)}</div>` : ''}
     </div>`;
   }).join('');
 }
@@ -3516,6 +3517,15 @@ const refreshSaleTotals = () => {
   L.querySelector('#sl-next').disabled = !s.lines.length;
   if (document.activeElement?.id === 'sl-disc' || document.activeElement?.id?.startsWith('sl-price') || document.activeElement?.id?.startsWith('sl-qty')) saleBillsRefresh();
 };
+// Número de serie: un cuadro por cada enser (si se venden 2 estufas iguales, dos cuadros); se guarda como "S1, S2".
+const serCount = l => Math.max(1, Math.min(20, Math.round(num(l.qty)) || 1));
+const serArr = (l, n) => { const a = (Array.isArray(l.sers) ? l.sers : (l.serial ? String(l.serial).split(/\s*,\s*/) : [])).slice(0, n); while (a.length < n) a.push(''); return a; };
+const serJoin = a => a.map(x => String(x).trim()).filter(Boolean).join(', ');
+function serHtml(l, i) {
+  const n = serCount(l); const a = serArr(l, n); l.sers = a; l.serial = serJoin(a);
+  return a.map((v, k) => `<input class="inp" id="sl-serial-${i}${k ? '-' + k : ''}" placeholder="${n > 1 ? `Número de serie ${k + 1} de ${n}` : 'Número de serie'}" value="${esc(v)}" data-in="saleSer" data-i="${i}" data-k="${k}" autocomplete="off" aria-label="Número de serie ${k + 1}">`).join('');
+}
+INP.saleSer = el => { const s = S.sale; const l = s?.lines[num(el.dataset.i)]; if (!l) return; const a = serArr(l, serCount(l)); a[num(el.dataset.k)] = el.value; l.sers = a; l.serial = serJoin(a); };
 const refreshSale = () => {
   const s = S.sale; if (!s) return; const L = s.layer;
   L.querySelector('#sl-lines').innerHTML = saleLinesHtml();
@@ -3569,7 +3579,8 @@ ACT.saleStep = el => {
   if (s.step === 'pay') initSaleSig();
 };
 function initSaleSig() { const s = S.sale; const cv = s?.layer.querySelector('#sl-sig'); if (!cv || s.pad || cv.closest('.hidden') || !cv.getClientRects().length) return; s.pad = sigPad(cv); }
-INP.saleLineIn = el => { const s = S.sale; const i = num(el.dataset.i); const l = s?.lines[i]; if (!l) return; l[el.dataset.f] = el.value; const cell = s.layer.querySelector('#sl-sub-' + i); if (cell) cell.textContent = money(num(l.qty) * num(l.price)); refreshSaleTotals(); };
+INP.saleLineIn = el => { const s = S.sale; const i = num(el.dataset.i); const l = s?.lines[i]; if (!l) return; l[el.dataset.f] = el.value;
+  if (el.dataset.f === 'qty') { const box = s.layer.querySelector('#sl-sers-' + i); if (box && box.children.length !== serCount(l)) box.innerHTML = serHtml(l, i); } const cell = s.layer.querySelector('#sl-sub-' + i); if (cell) cell.textContent = money(num(l.qty) * num(l.price)); refreshSaleTotals(); };
 INP.saleField = CHG.saleField = el => { const s = S.sale; if (!s) return; s[el.dataset.f] = el.type === 'checkbox' ? el.checked : el.value; if (el.dataset.f === 'from') { s.layer.querySelector('#sl-lines').innerHTML = saleLinesHtml(); renderSaleResults(); } refreshSaleTotals(); };
 let saleLookT = 0;
 INP.saleCust = CHG.saleCust = el => { const s = S.sale; if (!s) return; s.cust[el.dataset.f] = el.value; if (el.dataset.f === 'phone') { clearTimeout(saleLookT); saleLookT = setTimeout(() => saleLookup(el.value), 450); } };
@@ -3601,6 +3612,12 @@ ACT.saleSubmit = async () => {
   for (const l of lines) if (r2(num(l.qty)) <= 0) { toast(`Revisa la cantidad de ${l.it.name}.`, 'warn'); return; }
   const hp = lines.some(l => l.it.type === 'producto');
   if (hp && !s.cust.name.trim()) { toast('Para vender un equipo escribe el nombre del cliente; va en la garantía.', 'warn'); if (s.step === 'pay') ACT.saleStep({ dataset: { s: 'cart' } }); s.layer.querySelector('#sl-name')?.focus(); return; }
+  const noSer = lines.filter(l => l.it.type === 'producto' && serArr(l, serCount(l)).some(x => !String(x).trim()));
+  if (noSer.length && !(await confirmDlg('Falta el número de serie', `<p>${noSer.map(l => `<b>${esc(l.it.name)}</b>`).join(', ')}: falta el número de serie${noSer.some(l => serCount(l) > 1) ? ' de alguna unidad' : ''}. Va en la factura y en la garantía.</p>`, 'Cobrar sin la serie'))) {
+    if (s.step === 'pay') ACT.saleStep({ dataset: { s: 'cart' } });
+    const e0 = [...s.layer.querySelectorAll('[data-in="saleSer"]')].find(x => !x.value.trim()); if (e0) { e0.scrollIntoView({ block: 'center' }); e0.focus(); }
+    return;
+  }
   const cash = s.pay === 'Efectivo'; const recv = cash && String(s.recv).trim() ? r2(num(s.recv)) : 0;
   if (recv && recv < saleCalc(s).total) { toast(`Lo recibido (${money(recv)}) no cubre el total (${money(saleCalc(s).total)}).`, 'warn'); return; }
   const back = canBackdate() && !!s.when && s.when < ymd(); const deduct = !back || saleWhenStock(s);
@@ -4804,7 +4821,7 @@ async function boot(hot) {
    Las funciones con el mismo nombre que en los otros archivos los
    reemplazan (en JavaScript gana la última declaración).
    ===================================================================== */
-const APP_VERSION = '2026.11.25-be7d4c';
+const APP_VERSION = '2026.11.25-fffbeb';
 const FB_CONFIG = window.FB_CONFIG || null;
 const PACK = 24;   // el inventario va en 24 documentos (inv/b0…b23), unos 150 artículos en cada uno
 const W = {
